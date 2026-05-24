@@ -4188,7 +4188,7 @@ function quickDeleteIssue(e,id){
     saveLocal(); renderBoard();
     if(_settings.gasUrl){
       var fd=new FormData(); fd.append('action','deleteIssue'); fd.append('id',id);
-      fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+      fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
     }
     toast('削除しました');
   }, 200);
@@ -4400,12 +4400,12 @@ function pushCvToGas(id){
   if(!_settings.gasUrl) return;
   var cv=_cvs.find(function(x){return x.id===id;}); if(!cv) return;
   var fd=new FormData(); fd.append('action','saveCustomView'); fd.append('cv',JSON.stringify(cv));
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 function deleteCvFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteCustomView'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 // ============================================================ テンプレート実行
 function openTemplateRunModal(){
@@ -6341,7 +6341,7 @@ function autoSaveMasterToGas(){
   var fd=new FormData();
   fd.append('action','saveMaster');
   fd.append('master',JSON.stringify({categories:_cats, assignees:_asgs, templates:_tpls}));
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 function cleanupOrphanCats(){
   var projTitles=_projects.map(function(p){return p.title;});
@@ -6474,7 +6474,7 @@ function syncFromGas(){
   // 同期ボタンをスピナー表示（元テキストを保存しておく）
   var syncBtns=document.querySelectorAll('[onclick="syncFromGas()"]');
   syncBtns.forEach(function(b){ b._origText=b.textContent; b.disabled=true; b.textContent='⏳ 同期中...'; });
-  fetch(_settings.gasUrl+'?action=getAll')
+  fetch(_settings.gasUrl+'?action=getAll',{redirect:'follow'})
     .then(function(r){return r.json();})
     .then(function(d){
       // ---- issues マージ（updatedAtが新しい方を優先）----
@@ -6652,35 +6652,35 @@ function pushIssueToGas(id){
   if(!_settings.gasUrl) return;
   var i=_issues.find(function(x){return x.id===id;}); if(!i) return;
   var fd=new FormData(); fd.append('action','saveIssue'); fd.append('issue',JSON.stringify(i));
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 function deleteIssueFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteIssue'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 function pushTaskToGas(id){
   if(!_settings.gasUrl) return;
   var t=_tasks.find(function(x){return x.id===id;}); if(!t) return;
   var fd=new FormData(); fd.append('action','saveTask'); fd.append('task',JSON.stringify(t));
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 function deleteTaskFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteTask'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 
 function pushProjectToGas(id){
   if(!_settings.gasUrl) return;
   var p=_projects.find(function(x){return x.id===id;}); if(!p) return;
   var fd=new FormData(); fd.append('action','saveProject'); fd.append('project',JSON.stringify(p));
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 function deleteProjectFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteProject'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd})
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'})
     .then(function(r){return r.json();})
     .then(function(d){ if(!d.success) console.warn('deleteProject GAS error:',d); })
     .catch(function(e){ console.warn('deleteProject fetch error:',e); });
@@ -6689,12 +6689,12 @@ function pushPItemToGas(id){
   if(!_settings.gasUrl) return;
   var it=_pitems.find(function(x){return x.id===id;}); if(!it) return;
   var fd=new FormData(); fd.append('action','savePItem'); fd.append('item',JSON.stringify(it));
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 function deletePItemFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deletePItem'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
 }
 // ============================================================ Googleカレンダー
 function buildGcalUrl(t){
