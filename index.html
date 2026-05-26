@@ -900,7 +900,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
         <button class="quick-date-btn" id="quick-tomorrow-all" onmousedown="event.stopPropagation()" onclick="setQuickDate('all','tomorrow',this)">明日</button>
         <input type="date" class="quick-time-input" id="quick-date-all" title="日付指定" onmousedown="event.stopPropagation()" onchange="setQuickDateDirect('all',this)" style="width:130px;">
         <input type="time" class="quick-time-input" id="quick-time-all" placeholder="⏰時刻" onmousedown="event.stopPropagation()" oninput="onQuickTimeInput('all',this)">
-        <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:10px;padding:1px 5px;">📅 Gカレ</span><span class="tt-body">時刻を入力すると、Gカレにも自動登録されます。<br>登録されるカレンダーは「連携設定」で決まります。<br><b>カテゴリが設定と一致 ＋ エクスポートON</b> が条件です。</span></span>
+        <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:13px;padding:1px 4px;border:none;background:none;">📅</span><span class="tt-body">📅 <b>Gカレ自動登録の条件（3点すべて必要）</b><br>① タスクに<b>教室</b>が設定されている<br>② <b>期限日＋時刻</b>が両方設定されている<br>③ 設定タブの教室×カレンダーで<b>書出がON</b>になっている</span></span>
         <span style="width:1px;height:18px;background:var(--border);display:inline-block;flex-shrink:0;"></span>
         <select class="quick-add-sel" id="quick-cat-all" title="カテゴリ" onmousedown="event.stopPropagation()"></select>
         <select class="quick-add-sel" id="quick-asg-all" title="担当者" onmousedown="event.stopPropagation()"></select>
@@ -911,11 +911,11 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <option value="クロフネ">クロフネ</option>
           <option value="CA">CA</option>
         </select>
-        <div class="type-toggle-wrap" id="quick-type-wrap-all" onmousedown="event.stopPropagation()">
+        <span style="font-size:10px;color:var(--text-muted);flex-shrink:0;line-height:1;padding:0 2px 0 4px;" onmousedown="event.stopPropagation()">CB</span><div class="type-toggle-wrap" id="quick-type-wrap-all" onmousedown="event.stopPropagation()">
           <button class="type-toggle-btn" id="quick-type-out-all" onclick="setQuickType('all','授業外',this)">授業外</button>
           <button class="type-toggle-btn" id="quick-type-in-all"  onclick="setQuickType('all','授業内',this)">授業内</button>
         </div>
-        <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:10px;padding:1px 5px;">📋 クラスボード</span><span class="tt-body">カテゴリ・種別・教室はクラスボードで使われます。<br><b>カテゴリ</b> → 列（グループ）の分類<br><b>種別（内/外）</b> → 授業内か授業外か<br><b>教室</b> → どの教室の業務か</span></span>
+        <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:13px;padding:1px 4px;border:none;background:none;">📋</span><span class="tt-body">カテゴリ・種別・教室はクラスボードで使われます。<br><b>カテゴリ</b> → 列（グループ）の分類<br><b>ClassBoard</b> → 授業内か授業外か<br><b>教室</b> → どの教室の業務か</span></span>
       </div>
     </div>
     <div class="filter-bar" id="filterBar-all">
@@ -961,7 +961,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
         <button class="quick-date-btn" id="quick-tomorrow-mine" onmousedown="event.stopPropagation()" onclick="setQuickDate('mine','tomorrow',this)">明日</button>
         <input type="date" class="quick-time-input" id="quick-date-mine" title="日付指定" onmousedown="event.stopPropagation()" onchange="setQuickDateDirect('mine',this)" style="width:130px;">
         <input type="time" class="quick-time-input" id="quick-time-mine" placeholder="⏰時刻" onmousedown="event.stopPropagation()" oninput="onQuickTimeInput('mine',this)">
-        <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:10px;padding:1px 5px;">📅 Gカレ</span><span class="tt-body">時刻を入力すると、Gカレにも自動登録されます。<br>登録されるカレンダーは「連携設定」で決まります。<br><b>カテゴリが設定と一致 ＋ エクスポートON</b> が条件です。</span></span>
+        <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:13px;padding:1px 4px;border:none;background:none;">📅</span><span class="tt-body">📅 <b>Gカレ自動登録の条件（3点すべて必要）</b><br>① タスクに<b>教室</b>が設定されている<br>② <b>期限日＋時刻</b>が両方設定されている<br>③ 設定タブの教室×カレンダーで<b>書出がON</b>になっている</span></span>
         <span style="width:1px;height:18px;background:var(--border);display:inline-block;flex-shrink:0;"></span>
         <select class="quick-add-sel" id="quick-cat-mine" title="カテゴリ" onmousedown="event.stopPropagation()"></select>
         <select class="quick-add-sel" id="quick-asg-mine" title="担当者" onmousedown="event.stopPropagation()"></select>
@@ -972,11 +972,11 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <option value="クロフネ">クロフネ</option>
           <option value="CA">CA</option>
         </select>
-        <div class="type-toggle-wrap" id="quick-type-wrap-mine" onmousedown="event.stopPropagation()">
+        <span style="font-size:10px;color:var(--text-muted);flex-shrink:0;line-height:1;padding:0 2px 0 4px;" onmousedown="event.stopPropagation()">CB</span><div class="type-toggle-wrap" id="quick-type-wrap-mine" onmousedown="event.stopPropagation()">
           <button class="type-toggle-btn" id="quick-type-out-mine" onclick="setQuickType('mine','授業外',this)">授業外</button>
           <button class="type-toggle-btn" id="quick-type-in-mine"  onclick="setQuickType('mine','授業内',this)">授業内</button>
         </div>
-        <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:10px;padding:1px 5px;">📋 クラスボード</span><span class="tt-body">カテゴリ・種別・教室はクラスボードで使われます。<br><b>カテゴリ</b> → 列（グループ）の分類<br><b>種別（内/外）</b> → 授業内か授業外か<br><b>教室</b> → どの教室の業務か</span></span>
+        <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:13px;padding:1px 4px;border:none;background:none;">📋</span><span class="tt-body">カテゴリ・種別・教室はクラスボードで使われます。<br><b>カテゴリ</b> → 列（グループ）の分類<br><b>ClassBoard</b> → 授業内か授業外か<br><b>教室</b> → どの教室の業務か</span></span>
       </div>
     </div>
     <div class="filter-bar" id="filterBar-mine">
@@ -1258,7 +1258,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <!-- ステップ3：カレンダーごとの設定テーブル -->
           <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border);">Step 3 ｜ 教室×カレンダーの設定</div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">教室ごとに対応するGoogleカレンダーを紐づけ、取込（Gカレ→タスク）・書出（タスク→Gカレ）のON/OFFを設定します。
-            <span class="tt" style="margin-left:4px;"><span class="help-mark">?</span><span class="tt-body">📅 <b>取込・書出の仕様</b><br><br><b>書出（タスク→Gカレ）</b><br>・タスクに期限日を設定するとGカレに自動登録されます<br>・タスクを削除するとGカレのイベントも削除されます<br><br><b>取込（Gカレ→タスク）は現在非対応</b><br>・Gカレでイベントを削除してもタスクマネージャーには反映されません<br>・Gカレ側で変更した場合はタスクマネージャー側でも手動で変更してください</span></span>
+            <span class="tt" style="margin-left:4px;"><span class="help-mark">?</span><span class="tt-body">📅 <b>Gカレ書出の条件（3点すべて必要）</b><br>① タスクに<b>教室</b>が設定されている<br>② <b>期限日＋時刻</b>が両方設定されている<br>③ この表で該当教室の<b>書出がON</b>になっている<br><br><b>書出の動作</b><br>・条件が揃った状態で保存すると自動登録<br>・タスク削除時にGカレのイベントも削除<br><br><b>取込（Gカレ→タスク）は非対応</b><br>・Gカレ側の変更はタスクマネージャーに反映されません</span></span>
           </div>
 
           <div id="gcalMappingTable" style="margin-bottom:12px;overflow-x:auto;">
@@ -1282,7 +1282,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
                   <th style="padding:5px 8px;text-align:left;color:var(--text-muted);font-weight:700;">トリガー</th>
                   <th style="padding:5px 8px;text-align:left;color:var(--text-muted);font-weight:700;">教室</th>
                   <th style="padding:5px 8px;text-align:left;color:var(--text-muted);font-weight:700;">カテゴリ</th>
-                  <th style="padding:5px 8px;text-align:left;color:var(--text-muted);font-weight:700;">種別</th>
+                  <th style="padding:5px 8px;text-align:left;color:var(--text-muted);font-weight:700;">ClassBoard</th>
                   <th style="padding:5px 8px;text-align:left;color:var(--text-muted);font-weight:700;">ステータス</th>
                   <th style="padding:5px 8px;text-align:left;color:var(--text-muted);font-weight:700;">優先度</th>
                 </tr>
@@ -1317,10 +1317,12 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
             <div style="font-size:11px;color:var(--text-light);margin-top:8px;">※ 変更する場合は会員管理システム側のコードを修正してください。</div>
           </div>
 
-          <!-- クラスボード連携（将来実装） -->
-          <div style="margin-top:20px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;opacity:0.6;">
-            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;display:flex;align-items:center;gap:6px;">🏫 クラスボード連携（準備中）</div>
-            <div style="font-size:11.5px;color:var(--text-light);">教室 × 種別（授業内/授業外）でクラスボードへのエクスポートを設定できます。現在実装準備中です。</div>
+          <!-- クラスボード連携 -->
+          <div style="margin-top:20px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;display:flex;align-items:center;gap:6px;">📋 クラスボード連携
+              <span class="tt" style="margin-left:2px;"><span class="help-mark">?</span><span class="tt-body">📋 <b>ClassBoard連携の条件（2点で自動連携）</b><br>① タスクに<b>教室</b>が設定されている<br>② タスクの<b>ClassBoard</b>に「授業内」か「授業外」が設定されている<br><br>条件を満たすとクラスボード側で自動的に抽出・表示されます。<br>タスクマネージャー側での追加設定は不要です。</span></span>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-muted);">タスクに<b>教室</b>と<b>ClassBoard（授業内/授業外）</b>を設定するだけで、クラスボードに自動的に表示されます。</div>
           </div>
         </div>
       </div>
@@ -1431,7 +1433,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">種別</label>
+          <label class="form-label">ClassBoard</label>
           <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
             <div class="type-toggle-wrap">
               <button class="type-toggle-btn" id="fTaskTypeOut" type="button" onclick="setModalType('授業外',this)">授業外</button>
@@ -2327,6 +2329,7 @@ function renderTaskGroup(name,tasks,vid){
             +'<option value="クロフネ">クロフネ</option>'
             +'<option value="CA">CA</option>'
           +'</select>'
+          +'<span style="font-size:10px;color:var(--text-muted);flex-shrink:0;line-height:1;padding:0 2px 0 4px;">CB</span>'
           +'<div class="type-toggle-wrap" onmousedown="event.stopPropagation()">'
             +'<button class="type-toggle-btn" onclick="setQuickType(\'gq_'+safeId+'\',\'授業外\',this)">授業外</button>'
             +'<button class="type-toggle-btn" onclick="setQuickType(\'gq_'+safeId+'\',\'授業内\',this)">授業内</button>'
@@ -2426,8 +2429,8 @@ function renderTaskCard(t){
   var clsOpts='<option value="">🏫 教室</option>'+['北久里浜','久里浜','クロフネ','CA'].map(function(c){return '<option value="'+c+'"'+(t.classroom===c?' selected':'')+'>'+c+'</option>';}).join('');
   var clsSel='<select class="task-inline-sel'+(t.classroom?' task-sel-cls':' sel-empty')+'" onchange="taskClsChange(event,\''+t.id+'\')" onclick="event.stopPropagation()" title="教室">'+clsOpts+'</select>';
   // 種別セレクト（常に固定表示）
-  var typeOpts='<option value="">種別</option><option value="授業内"'+(t.taskType==='授業内'?' selected':'')+'>授業内</option><option value="授業外"'+(t.taskType==='授業外'?' selected':'')+'>授業外</option>';
-  var typeSel='<select class="task-inline-sel'+(t.taskType?' task-sel-type':' sel-empty')+'" onchange="taskTypeChange(event,\''+t.id+'\')" onclick="event.stopPropagation()" title="種別">'+typeOpts+'</select>';
+  var typeOpts='<option value="">ClassBoard</option><option value="授業内"'+(t.taskType==='授業内'?' selected':'')+'>授業内</option><option value="授業外"'+(t.taskType==='授業外'?' selected':'')+'>授業外</option>';
+  var typeSel='<select class="task-inline-sel'+(t.taskType?' task-sel-type':' sel-empty')+'" onchange="taskTypeChange(event,\''+t.id+'\')" onclick="event.stopPropagation()" title="📋 ClassBoard連携｜条件：教室＋ClassBoard（授業内/授業外）が設定されているとクラスボードに表示されます">'+typeOpts+'</select>';
   // 親子関係バッジ
   var children=_tasks.filter(function(x){return x.dependsOn===t.id;});
   var parentTask=t.dependsOn?_tasks.find(function(x){return x.id===t.dependsOn;}):null;
@@ -2497,9 +2500,9 @@ function renderTaskCard(t){
   // Gカレボタン: 連携済みなら📅チェック済み表示、未連携かつ期限日ありなら手動エクスポートボタン
   var gcalBtn='';
   if(t.gcalEventId){
-    gcalBtn='<span class="btn-icon" title="Gカレ連携済み" style="font-size:13px;color:#34a853;cursor:default;position:relative;">📅<span style="position:absolute;top:-3px;right:-3px;font-size:8px;background:#34a853;color:white;border-radius:50%;width:10px;height:10px;display:flex;align-items:center;justify-content:center;line-height:1;">✓</span></span>';
+    gcalBtn='<span class="btn-icon" title="📅 Gカレ連携済み｜条件：①教室 ②期限日＋時刻 ③設定タブの書出ON" style="font-size:13px;color:#34a853;cursor:default;position:relative;">📅<span style="position:absolute;top:-3px;right:-3px;font-size:8px;background:#34a853;color:white;border-radius:50%;width:10px;height:10px;display:flex;align-items:center;justify-content:center;line-height:1;">✓</span></span>';
   } else if(t.dueDate && _gcalSettings && (_gcalSettings.classMappings||[]).some(function(m){return m.exportOn;})){
-    gcalBtn='<button class="btn-icon" onclick="pushTaskToGcalManual(\''+t.id+'\');event.stopPropagation();" title="Gカレに登録" style="font-size:13px;">📅</button>';
+    gcalBtn='<button class="btn-icon" onclick="pushTaskToGcalManual(\''+t.id+'\');event.stopPropagation();" title="📅 Gカレに登録｜条件：①教室 ②期限日＋時刻 ③設定タブの書出ON" style="font-size:13px;">📅</button>';
   } else if(gcal){
     gcalBtn='<a class="btn-icon" href="'+gcal+'" target="_blank" rel="noopener" title="カレンダーに追加" style="font-size:13px;text-decoration:none;">📅</a>';
   }
@@ -2848,12 +2851,16 @@ function quickAddTask(e,vid){
   var t={id:genId(),title:title,category:category,assignee:assignee,dueDate:dueDate,dueTime:dueTime,status:'todo',memo:'',issueId:'',
     classroom:classroom,taskType:taskType,priority:'',
     createdBy:_settings.myName||'',createdAt:now,updatedAt:now};
+  if(taskType && !classroom){
+    if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません。\n\nこのまま保存しますか？')) return;
+  }
   _tasks.push(t);
   inp.value='';
-  // 期限日があればGカレにも登録（時刻なしでも登録する）
-  if(dueDate && shouldAutoExportToGcal(t)) pushTaskToGcal(t);
+  // 期限日・時刻・教室が揃っているときのみGカレ登録（時刻なしはスルー）
+  var willGcal = shouldAutoExportToGcal(t);
+  if(willGcal) pushTaskToGcalWithToast(t);
   saveLocal(); pushTaskToGas(t.id);
-  miniToast('タスクを追加しました'+(dueDate&&shouldAutoExportToGcal(t)?' 📅 Gカレにも登録':''));
+  miniToast('タスクを追加しました'+(willGcal?' 📅 Gカレにも登録':''));
   renderTaskView(vid);
   updateCounts();
 }
@@ -3145,6 +3152,11 @@ function toggleRecurTypeUI(){
 function saveTask(){
   var title=document.getElementById('fTaskTitle').value.trim();
   if(!title){alert('タイトルを入力してください');return;}
+  var _taskType=document.getElementById('fTaskType').value||'';
+  var _classroom=document.getElementById('fTaskClassroom').value||'';
+  if(_taskType && !_classroom){
+    if(!confirm('ClassBoard（'+_taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません。\n\nこのまま保存しますか？')) return;
+  }
   var now=new Date().toISOString();
   var rec=document.getElementById('fRecurringOn').checked;
   var rtype=rec?document.getElementById('fRecurType').value:'relative';
@@ -3196,8 +3208,10 @@ function saveTask(){
     ? _tasks.find(function(x){return x.id===_curTaskId;})
     : _tasks[_tasks.length-1];
   pushTaskToGas(_curTaskId||_tasks[_tasks.length-1].id);
-  // Gカレ自動エクスポート（エクスポートONのカテゴリのみ）
-  if(savedTask && shouldAutoExportToGcal(savedTask)) pushTaskToGcal(savedTask);
+  // Gカレ自動エクスポート（期限日・時刻・教室カレンダー設定が揃っているときのみ）
+  if(savedTask && shouldAutoExportToGcal(savedTask)){
+    pushTaskToGcalWithToast(savedTask);
+  }
 }
 function spawnNextRecurring(t){
   if(!t.recurringOn) return;
@@ -3736,11 +3750,15 @@ function groupQuickAdd(safeId, catName, vid){
     classroom: classroom, taskType: taskType, priority: '',
     createdBy: _settings.myName||'', createdAt: now, updatedAt: now
   };
+  if(taskType && !classroom){
+    if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません。\n\nこのまま保存しますか？')) return;
+  }
   _tasks.push(t);
   closeGroupQadd(safeId);
-  if(dueDate && shouldAutoExportToGcal(t)) pushTaskToGcal(t);
+  var willGcalG = shouldAutoExportToGcal(t);
+  if(willGcalG) pushTaskToGcalWithToast(t);
   saveLocal(); pushTaskToGas(t.id);
-  miniToast('「'+catName+'」にタスクを追加しました'+(dueDate&&shouldAutoExportToGcal(t)?' 📅 Gカレにも登録':''));
+  miniToast('「'+catName+'」にタスクを追加しました'+(willGcalG?' 📅 Gカレにも登録':''));
   renderTaskView(vid);
   updateCounts();
 }
@@ -5991,6 +6009,7 @@ function gcalExportMapping(classroom) {
 }
 
 function shouldAutoExportToGcal(task) {
+  if (!task.dueDate || !task.dueTime) return false;
   var m = gcalExportMapping(task.classroom || '');
   return !!m;
 }
@@ -6036,25 +6055,63 @@ function pushTaskToGcal(task) {
     .catch(function(){});
 }
 
+// ---- 自動エクスポート＋トースト通知用 ----
+function pushTaskToGcalWithToast(task) {
+  var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
+  if (!gasUrl || !task.dueDate || !task.dueTime) return;
+  var m = gcalExportMapping(task.classroom || '');
+  if (!m) return;
+  var rawDate = task.dueDate;
+  var normalizedDate = rawDate;
+  if (typeof rawDate === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    var d = new Date(rawDate);
+    if (!isNaN(d.getTime())) {
+      normalizedDate = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    }
+  }
+  var params = new URLSearchParams();
+  params.append('action',     task.gcalEventId ? 'updateCalendarEvent' : 'createCalendarEvent');
+  params.append('calendarId', m.calId);
+  params.append('title',      task.title || '無題');
+  params.append('dueDate',    normalizedDate);
+  params.append('dueTime',    task.dueTime);
+  params.append('memo',       task.memo || '');
+  if (m.gcalColor) params.append('colorId', m.gcalColor);
+  if (task.gcalEventId) params.append('gcalEventId', task.gcalEventId);
+  fetch(gasUrl + '?' + params.toString(), { redirect: 'follow' })
+    .then(function(r){ return r.text(); })
+    .then(function(text){
+      var d = JSON.parse(text);
+      if (d.success || d.gcalEventId) {
+        if (d.gcalEventId && !task.gcalEventId) {
+          task.gcalEventId = d.gcalEventId;
+          task.gcalCalId   = m.calId;
+          saveLocal();
+          pushTaskToGas(task.id);
+          renderTaskView(_activeView||'all');
+        }
+        toast('📅 Gカレに登録しました');
+      } else {
+        toast('❌ ' + (d.error||'Gカレ登録失敗'));
+      }
+    })
+    .catch(function(){ toast('❌ GASへの通信に失敗しました'); });
+}
+
 // ---- 手動エクスポートボタン用 ----
 function pushTaskToGcalManual(taskId) {
   var t = _tasks.find(function(x){ return x.id === taskId; });
   if (!t) return;
-  if (!t.dueDate) { toast('❌ 期限日がないタスクはGカレに登録できません'); return; }
+  if (!t.dueDate) { toast('❌ 期限日を設定してください'); return; }
+  if (!t.dueTime) { toast('❌ 時刻を設定してください'); return; }
 
   var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
   if (!gasUrl) { toast('❌ GAS URLが設定されていません'); return; }
 
-  // エクスポートONのマッピングを探す（教室一致）
-  var m = gcalExportMapping(t.classroom || '');
-  if (!m) {
-    // 教室なしの場合は最初のexportOnカレンダーにフォールバック
-    var maps = _gcalSettings.classMappings || [];
-    for (var i = 0; i < maps.length; i++) {
-      if (maps[i].exportOn && maps[i].calId) { m = maps[i]; break; }
-    }
-  }
-  if (!m) { toast('❌ エクスポート先のカレンダーが設定されていません'); return; }
+  // エクスポートONのマッピングを探す（教室一致必須）
+  if (!t.classroom) { toast('❌ 教室を設定してください'); return; }
+  var m = gcalExportMapping(t.classroom);
+  if (!m) { toast('❌ 設定タブで「' + t.classroom + '」の書出カレンダーを設定してください'); return; }
 
   // dueDate を YYYY-MM-DD 形式に正規化
   var rawDateM = t.dueDate;
@@ -6531,8 +6588,17 @@ function syncFromGas(){
             mergedTasks.push(gt);
           }
         });
-        // ローカルにのみ存在するタスク（未同期の新規作成）は残す
-        Object.values(_localTaskMap).forEach(function(lt){ mergedTasks.push(lt); });
+        // ローカルにのみ存在するタスク：updatedAtが新しい（直近1分以内）ものは新規作成として残す
+        // それ以外はGASに存在しない＝削除済みとみなして除外する
+        var now = Date.now();
+        Object.values(_localTaskMap).forEach(function(lt){
+          var localTime = lt.updatedAt ? new Date(lt.updatedAt).getTime() : 0;
+          var isVeryNew = (now - localTime) < 60 * 1000; // 1分以内
+          if(isVeryNew || !lt.updatedAt){
+            mergedTasks.push(lt); // 新規作成中のタスクは残す
+          }
+          // 1分以上経ってGASにないタスクは削除済みとみなしてスルー
+        });
         _tasks=mergedTasks;
         autoRegisterCats(_tasks);
         // GASから来たタスクのdueDateを正規化（YYYY-MM-DDTHH:MM → dueDate/dueTime に分離）
