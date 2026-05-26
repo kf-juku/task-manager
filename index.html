@@ -888,7 +888,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <button class="btn-secondary" onclick="syncFromGas()" id="btnSyncTop" style="font-size:12px;padding:5px 12px;">🔄 同期</button>
           <span class="sync-help-wrap" style="position:relative;display:inline-flex;align-items:center;">
             <span style="width:16px;height:16px;background:#94a3b8;color:white;border-radius:50%;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:default;line-height:1;" tabindex="0">?</span>
-            <span class="sync-help-tip" style="display:none;position:absolute;top:22px;right:0;background:#1e293b;color:white;font-size:11px;padding:8px 10px;border-radius:6px;width:200px;line-height:1.5;z-index:100;white-space:normal;box-shadow:0 4px 12px rgba(0,0,0,0.2);">GASスプレッドシートと双方向同期します。<br>会員管理ツールからのタスクも取得されます。<br><br>⏱️ 5分ごとに自動同期しています。</span>
+            <span class="sync-help-tip" style="display:none;position:absolute;top:22px;right:0;background:#1e293b;color:white;font-size:11px;padding:8px 10px;border-radius:6px;width:200px;line-height:1.5;z-index:100;white-space:normal;box-shadow:0 4px 12px rgba(0,0,0,0.2);">GASスプレッドシートと双方向同期します。<br>会員管理ツールからのタスクも取得されます。<br><br>⏱️ 接続時・毎朝9時・深夜0時に自動同期しています。</span>
           </span>
         </div>
       </div>
@@ -949,7 +949,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <button class="btn-secondary" onclick="syncFromGas()" style="font-size:12px;padding:5px 12px;">🔄 同期</button>
           <span class="sync-help-wrap" style="position:relative;display:inline-flex;align-items:center;">
             <span style="width:16px;height:16px;background:#94a3b8;color:white;border-radius:50%;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:default;line-height:1;" tabindex="0">?</span>
-            <span class="sync-help-tip" style="display:none;position:absolute;top:22px;right:0;background:#1e293b;color:white;font-size:11px;padding:8px 10px;border-radius:6px;width:200px;line-height:1.5;z-index:100;white-space:normal;box-shadow:0 4px 12px rgba(0,0,0,0.2);">GASスプレッドシートと双方向同期します。<br>会員管理ツールからのタスクも取得されます。<br><br>⏱️ 5分ごとに自動同期しています。</span>
+            <span class="sync-help-tip" style="display:none;position:absolute;top:22px;right:0;background:#1e293b;color:white;font-size:11px;padding:8px 10px;border-radius:6px;width:200px;line-height:1.5;z-index:100;white-space:normal;box-shadow:0 4px 12px rgba(0,0,0,0.2);">GASスプレッドシートと双方向同期します。<br>会員管理ツールからのタスクも取得されます。<br><br>⏱️ 接続時・毎朝9時・深夜0時に自動同期しています。</span>
           </span>
         </div>
       </div>
@@ -1949,8 +1949,27 @@ window.onload=function(){
     // Gカレ設定を先に取得してから同期（設定がないとGカレ自動登録が動かないため）
     loadGcalSettings(function(){ syncFromGas(); });
   }
-  // 5分ごとに自動同期
-  setInterval(function(){ if(_settings.gasUrl) syncFromGas(); }, 5*60*1000);
+  // 日本時間 9:00 と 0:00 に自動同期
+  (function scheduleSync(){
+    var now = new Date();
+    // JST = UTC+9
+    var jstNow = new Date(now.getTime() + 9*60*60*1000);
+    var h = jstNow.getUTCHours();
+    var m = jstNow.getUTCMinutes();
+    var s = jstNow.getUTCSeconds();
+    // 次の 0:00 or 9:00 JST までのミリ秒を計算
+    var targets = [0, 9];
+    var msUntil = null;
+    targets.forEach(function(th){
+      var diff = ((th - h + 24) % 24) * 3600 - m * 60 - s;
+      if(diff <= 0) diff += 24 * 3600;
+      if(msUntil === null || diff < msUntil) msUntil = diff;
+    });
+    setTimeout(function(){
+      if(_settings.gasUrl) syncFromGas();
+      scheduleSync();
+    }, msUntil * 1000);
+  })();
 };
 
 function loadLocal(){
