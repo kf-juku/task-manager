@@ -2852,7 +2852,7 @@ function quickAddTask(e,vid){
     classroom:classroom,taskType:taskType,priority:'',
     createdBy:_settings.myName||'',createdAt:now,updatedAt:now};
   if(taskType && !classroom){
-    if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません。\n\nこのまま保存しますか？')) return;
+    if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
   }
   _tasks.push(t);
   inp.value='';
@@ -3155,7 +3155,7 @@ function saveTask(){
   var _taskType=document.getElementById('fTaskType').value||'';
   var _classroom=document.getElementById('fTaskClassroom').value||'';
   if(_taskType && !_classroom){
-    if(!confirm('ClassBoard（'+_taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません。\n\nこのまま保存しますか？')) return;
+    if(!confirm('ClassBoard（'+_taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
   }
   var now=new Date().toISOString();
   var rec=document.getElementById('fRecurringOn').checked;
@@ -3751,7 +3751,7 @@ function groupQuickAdd(safeId, catName, vid){
     createdBy: _settings.myName||'', createdAt: now, updatedAt: now
   };
   if(taskType && !classroom){
-    if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません。\n\nこのまま保存しますか？')) return;
+    if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
   }
   _tasks.push(t);
   closeGroupQadd(safeId);
