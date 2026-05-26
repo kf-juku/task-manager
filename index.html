@@ -1320,9 +1320,9 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <!-- クラスボード連携 -->
           <div style="margin-top:20px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
             <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;display:flex;align-items:center;gap:6px;">📋 クラスボード連携
-              <span class="tt" style="margin-left:2px;"><span class="help-mark">?</span><span class="tt-body">📋 <b>ClassBoard連携の条件（2点で自動連携）</b><br>① タスクに<b>教室</b>が設定されている<br>② タスクの<b>ClassBoard</b>に「授業内」か「授業外」が設定されている<br><br>条件を満たすとクラスボード側で自動的に抽出・表示されます。<br>タスクマネージャー側での追加設定は不要です。</span></span>
+              <span class="tt" style="margin-left:2px;"><span class="help-mark">?</span><span class="tt-body">📋 <b>ClassBoard連携の条件（3点で自動連携）</b><br>① タスクに<b>教室</b>が設定されている<br>② タスクの<b>ClassBoard</b>に「授業内」か「授業外」が設定されている<br>③ タスクに<b>期日</b>が設定されている<br><br>条件を満たすとクラスボード側で自動的に抽出・表示されます。<br>タスクマネージャー側での追加設定は不要です。</span></span>
             </div>
-            <div style="font-size:11.5px;color:var(--text-muted);">タスクに<b>教室</b>と<b>ClassBoard（授業内/授業外）</b>を設定するだけで、クラスボードに自動的に表示されます。</div>
+            <div style="font-size:11.5px;color:var(--text-muted);">タスクに<b>教室</b>・<b>ClassBoard（授業内/授業外）</b>・<b>期日</b>の3点を設定すると、クラスボードに自動的に表示されます。</div>
           </div>
         </div>
       </div>
@@ -2854,6 +2854,9 @@ function quickAddTask(e,vid){
   if(taskType && !classroom){
     if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
   }
+  if(taskType && !dueDate){
+    if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、期日が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
+  }
   _tasks.push(t);
   inp.value='';
   // 期限日・時刻・教室が揃っているときのみGカレ登録（時刻なしはスルー）
@@ -3156,6 +3159,10 @@ function saveTask(){
   var _classroom=document.getElementById('fTaskClassroom').value||'';
   if(_taskType && !_classroom){
     if(!confirm('ClassBoard（'+_taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
+  }
+  var _dueDate=document.getElementById('fTaskDue').value||'';
+  if(_taskType && !_dueDate){
+    if(!confirm('ClassBoard（'+_taskType+'）が設定されていますが、期日が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
   }
   var now=new Date().toISOString();
   var rec=document.getElementById('fRecurringOn').checked;
@@ -3752,6 +3759,9 @@ function groupQuickAdd(safeId, catName, vid){
   };
   if(taskType && !classroom){
     if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
+  }
+  if(taskType && !dueDate){
+    if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、期日が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
   }
   _tasks.push(t);
   closeGroupQadd(safeId);
