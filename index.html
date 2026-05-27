@@ -1693,6 +1693,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
         </div>
       </div>
       <div id="tplRunStep2" style="display:none;">
+        <div id="tplRunMemo" style="display:none;background:var(--surface);border-left:3px solid var(--teal);border-radius:4px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.6;"></div>
         <div class="form-group">
           <label class="form-label" id="tplParamLabel">生徒の名前 <span class="req">*</span></label>
           <input class="form-input" id="tplParamValue" placeholder="例：田中 太郎">
@@ -1737,7 +1738,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
       </div>
       <div class="form-group">
         <label class="form-label" style="margin-bottom:8px;">タスク一覧</label>
-        <div style="font-size:10.5px;color:var(--text-light);margin-bottom:7px;">タイトルに <code>{名前}</code> と書くと実行時に生徒名などに置換されます。オフセット日数は基準日からの日数です。</div>
+        <div style="font-size:10.5px;color:var(--text-light);margin-bottom:7px;">タイトルに <code>{名前}</code> と書くと実行時に生徒名などに置換されます。オフセット日数は基準日からの日数です（マイナスで前倒し可）。</div>
         <div class="template-task-editor" id="tplTaskEditor"></div>
         <button class="btn-add-trow" onclick="addTplTaskRow()" style="margin-top:7px;">＋ タスクを追加</button>
       </div>
@@ -1970,7 +1971,7 @@ function loadLocal(){
   _asgs    = sj(localStorage.getItem(KA),DEFAULT_ASGS.slice());
   _settings= sj(localStorage.getItem(KS),{gasUrl:'',myName:''});
   _cvs     = sj(localStorage.getItem(KCV),[]);
-  _tpls    = sj(localStorage.getItem(KTPL),DEFAULT_TPLS.slice());
+  var _tplsRaw=localStorage.getItem(KTPL); _tpls=(_tplsRaw!=null)?sj(_tplsRaw,[]):DEFAULT_TPLS.slice();
   _hiddenCvs = sj(localStorage.getItem(KHCV),[]);
   _projects  = sj(localStorage.getItem(KPR),[]);
   _pitems    = sj(localStorage.getItem(KPIT),[]);
@@ -4538,6 +4539,8 @@ function selectTpl(id){
   document.getElementById('tplRunStep1').style.display='none';
   document.getElementById('tplRunStep2').style.display='';
   document.getElementById('tplParamLabel').textContent=(tpl.param||'パラメータ')+' ';
+  var memoEl=document.getElementById('tplRunMemo');
+  if(memoEl){ if(tpl.memo){ memoEl.textContent='📝 '+tpl.memo; memoEl.style.display=''; } else { memoEl.style.display='none'; } }
   document.getElementById('tplParamValue').value='';
   document.getElementById('tplBaseDate').value=todayStr();
   document.getElementById('tplRunId').value=id;
@@ -4562,6 +4565,8 @@ function renderTplPreview(){
     html+='<div style="display:flex;align-items:center;gap:7px;background:var(--surface);border-radius:6px;padding:6px 10px;">'
       +'<span style="font-size:12.5px;font-weight:600;flex:1;">'+esc(title)+'</span>'
       +(t.cat?'<span style="font-size:10.5px;background:var(--purple-light);color:var(--purple-dark);border-radius:10px;padding:1px 7px;">'+esc(t.cat)+'</span>':'')
+      +(t.classroom?'<span style="font-size:10.5px;background:var(--surface2);color:var(--text-muted);border-radius:10px;padding:1px 7px;">'+esc(t.classroom)+'</span>':'')
+      +(t.taskType?'<span style="font-size:10.5px;background:var(--teal-light);color:var(--teal);border-radius:10px;padding:1px 7px;">CB '+esc(t.taskType)+'</span>':'')
       +'<span style="font-size:10.5px;color:var(--text-muted);">'+due+(t.time?' '+t.time:'')+'</span>'
       +'</div>';
   });
@@ -4578,7 +4583,7 @@ function runTemplate(){
   var newIds=[];
   tpl.tasks.forEach(function(t){
     var title=t.title.replace(/\{名前\}/g,param);
-    var nt={id:genId(),title:title,category:t.cat||'',assignee:_settings.myName||'',dueDate:offsetDate(base,t.offset||0),dueTime:t.time||'',status:'todo',memo:'',issueId:'',createdBy:_settings.myName||'',createdAt:now,updatedAt:now};
+    var nt={id:genId(),title:title,category:t.cat||'',assignee:_settings.myName||'',dueDate:offsetDate(base,t.offset||0),dueTime:t.time||'',status:'todo',memo:'',issueId:'',classroom:t.classroom||'',taskType:t.taskType||'',createdBy:_settings.myName||'',createdAt:now,updatedAt:now};
     _tasks.push(nt);
     newIds.push(nt.id);
   });
@@ -4594,6 +4599,7 @@ function openTplEditModal(id){
   document.getElementById('tplEditTitle').textContent=tpl?'テンプレートを編集':'テンプレートを作成';
   document.getElementById('fTplName').value=tpl?tpl.name:'';
   document.getElementById('fTplParam').value=tpl?(tpl.param||'生徒の名前'):'生徒の名前';
+  document.getElementById('fTplMemo').value=tpl?(tpl.memo||''):'';
   document.getElementById('fTplId').value=id||'';
   document.getElementById('tplDelBtn').style.display=tpl?'':'none';
   var editor=document.getElementById('tplTaskEditor');
@@ -4608,7 +4614,16 @@ function deleteTpl(id){
   if(!tpl) return;
   if(!confirm('テンプレート「'+tpl.name+'」を削除しますか？')) return;
   _tpls=_tpls.filter(function(t){return t.id!==id;});
-  saveLocal(); renderSettings(); toast('テンプレートを削除しました');
+  saveLocal(); autoSaveMasterToGas(); renderSettings(); toast('テンプレートを削除しました');
+}
+function duplicateTpl(id){
+  var tpl=_tpls.find(function(t){return t.id===id;});
+  if(!tpl) return;
+  var copy=JSON.parse(JSON.stringify(tpl));
+  copy.id='tpl_'+genId();
+  copy.name=tpl.name+'（コピー）';
+  _tpls.push(copy);
+  saveLocal(); autoSaveMasterToGas(); renderSettings(); toast('「'+copy.name+'」を作成しました');
 }
 function addTplTaskRow(data){
   data=data||{title:'',cat:'',offset:0,time:''};
@@ -4623,10 +4638,14 @@ function addTplTaskRow(data){
       timeOpts+='<option value="'+v+'"'+(data.time===v?' selected':'')+'>'+v+'</option>';
     });
   }
+  var clsOpts='<option value="">教室なし</option>'
+    +['久里浜','北久里浜'].map(function(c){return '<option value="'+c+'"'+(data.classroom===c?' selected':'')+'>'+c+'</option>';}).join('');
   row.innerHTML='<input class="t-title" placeholder="タスクのタイトル（{名前}で置換）" value="'+esc(data.title||'')+'">'
     +'<select class="t-cat">'+_cats.map(function(c){return '<option value="'+esc(c)+'"'+(data.cat===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')+'</select>'
-    +'<input class="t-offset" type="number" min="0" value="'+(data.offset||0)+'" title="基準日からの日数" style="width:52px;">'
+    +'<input class="t-offset" type="number" min="-365" value="'+(data.offset||0)+'" title="基準日からの日数（マイナスで前倒し）" style="width:52px;">'
     +'<select class="t-time" title="時刻">'+timeOpts+'</select>'
+    +'<select class="t-cls" title="教室">'+clsOpts+'</select>'
+    +'<select class="t-type" title="CB（授業内外）"><option value="">CBなし</option><option value="授業外"'+(data.taskType==='授業外'?' selected':'')+'>CB 授業外</option><option value="授業内"'+(data.taskType==='授業内'?' selected':'')+'>CB 授業内</option></select>'
     +'<button class="btn-icon" onclick="this.closest(\'.template-task-row\').remove()" title="削除">🗑️</button>';
   editor.appendChild(row);
 }
@@ -4635,7 +4654,8 @@ function saveTemplate(){
   if(!name){alert('テンプレート名を入力してください');return;}
   var rows=Array.from(document.getElementById('tplTaskEditor').querySelectorAll('.template-task-row'));
   var tasks=rows.map(function(r){
-    return {title:r.querySelector('.t-title').value.trim(),cat:r.querySelector('.t-cat').value,offset:parseInt(r.querySelector('.t-offset').value)||0,time:r.querySelector('.t-time').value||''};
+    var clsEl=r.querySelector('.t-cls'); var typeEl=r.querySelector('.t-type');
+    return {title:r.querySelector('.t-title').value.trim(),cat:r.querySelector('.t-cat').value,offset:parseInt(r.querySelector('.t-offset').value)||0,time:r.querySelector('.t-time').value||'',classroom:clsEl?clsEl.value:'',taskType:typeEl?typeEl.value:''};
   }).filter(function(t){return t.title;});
   var memo=document.getElementById('fTplMemo').value.trim();
   var data={name:name,param:document.getElementById('fTplParam').value.trim()||'生徒の名前',memo:memo,tasks:tasks};
@@ -4645,12 +4665,12 @@ function saveTemplate(){
   } else {
     _tpls.push(Object.assign({id:'tpl_'+genId()},data));
   }
-  saveLocal(); closeTplEditModal(); renderSettings(); toast('テンプレートを保存しました');
+  saveLocal(); autoSaveMasterToGas(); closeTplEditModal(); renderSettings(); toast('テンプレートを保存しました');
 }
 function deleteCurrentTemplate(){
   if(!confirm('このテンプレートを削除しますか？')) return;
   _tpls=_tpls.filter(function(t){return t.id!==_curTplId;});
-  saveLocal(); closeTplEditModal(); renderSettings(); toast('削除しました');
+  saveLocal(); autoSaveMasterToGas(); closeTplEditModal(); renderSettings(); toast('削除しました');
 }
 
 // ============================================================ 課題ボード
@@ -5753,6 +5773,7 @@ function renderSettings(){
         +'<div style="font-size:13px;font-weight:700;">'+esc(tpl.name)+'</div>'
         +'<div style="display:flex;gap:6px;">'
         +'<button class="btn-secondary" onclick="openTplEditModal(\''+tpl.id+'\')" style="font-size:11px;padding:2px 10px;">編集</button>'
+        +'<button class="btn-secondary" onclick="duplicateTpl(\''+tpl.id+'\')" style="font-size:11px;padding:2px 10px;" title="複製">複製</button>'
         +'<button class="btn-icon" onclick="deleteTpl(\''+tpl.id+'\')" style="color:#dc2626;font-size:14px;" title="削除">×</button>'
         +'</div></div>'
         +(tpl.memo?'<div style="font-size:11.5px;color:var(--text-muted);margin-top:5px;white-space:pre-wrap;">'+esc(tpl.memo)+'</div>':'')
@@ -6791,8 +6812,10 @@ function syncFromGas(){
         if(m.assignees&&m.assignees.length>0){
           m.assignees.forEach(function(a){ if(_asgs.indexOf(a)===-1) _asgs.push(a); });
         }
-        if(m.templates&&m.templates.length>0 && _tpls.length===0){
-          _tpls=m.templates;
+        if(m.templates&&m.templates.length>0){
+          // 直近60秒以内にsaveMasterした場合はローカルが正（削除直後の復活を防ぐ）
+          var recentlySavedTpl = (Date.now() - _lastMasterSaveTime) < 60 * 1000;
+          if(!recentlySavedTpl && _tpls.length===0){ _tpls=m.templates; }
         }
       }
       saveLocal();
