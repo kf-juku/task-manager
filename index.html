@@ -1492,6 +1492,16 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
             <input type="number" id="fRecurMonthday" value="10" min="1" max="31" style="width:56px;border:1.5px solid #99f6e4;border-radius:6px;padding:4px 8px;font-size:13px;font-family:inherit;background:white;">
             <label>日が締め切り</label>
           </div>
+          <!-- 次回期日の計算基準チップ -->
+          <div id="recurBaseRow" class="recurring-row" style="display:none;margin-top:6px;gap:6px;">
+            <label style="font-size:11px;color:var(--teal);flex-shrink:0;">次回の起点：</label>
+            <span class="tt recur-base-chip" id="chipCompletion" onclick="selectRecurBase('completion')" style="font-size:11px;padding:3px 10px;border-radius:20px;border:1.5px solid #99f6e4;cursor:pointer;background:white;color:var(--teal);">完了日基準
+              <span class="tt-body">完了した日を起点に翌月◯日を計算します。<br>例：6月10日に完了 → 7月◯日</span>
+            </span>
+            <span class="tt recur-base-chip" id="chipDuedate" onclick="selectRecurBase('duedate')" style="font-size:11px;padding:3px 10px;border-radius:20px;border:1.5px solid #99f6e4;cursor:pointer;background:white;color:var(--teal);">期限日基準
+              <span class="tt-body">元の期限日を起点に翌月◯日を計算します。<br>例：5月5日期限 → 6月5日（完了タイミング問わず）</span>
+            </span>
+          </div>
           <!-- 相対日数 -->
           <div id="recurRelative" class="recurring-row" style="display:none;">
             <input type="number" id="fRecurN" value="1" min="1" max="365" style="width:56px;border:1.5px solid #99f6e4;border-radius:6px;padding:4px 8px;font-size:13px;font-family:inherit;background:white;">
@@ -1508,6 +1518,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
       </div>
       <input type="hidden" id="fTaskIssueId">
       <input type="hidden" id="fTaskId">
+      <input type="hidden" id="fRecurBase" value="duedate">
     </div>
     <div class="modal-foot">
       <button class="btn-danger" id="taskDelBtn" onclick="deleteCurrentTask()" style="display:none;margin-right:auto;">削除</button>
@@ -2317,7 +2328,8 @@ function renderTaskGroup(name,tasks,vid){
   if(name==='__sorted__'){
     return '<div class="task-group"><div class="task-group-body" style="border-radius:6px;overflow:hidden;margin:4px 16px 8px;">'+tasks.map(renderTaskCard).join('')+'</div></div>';
   }
-  var safeId=name.replace(/[^a-zA-Z0-9]/g,'_');
+  // カテゴリ名をハッシュ化してIDの衝突を防ぐ
+  var safeId='cat_'+name.split('').reduce(function(h,c){return (((h<<5)-h)+c.charCodeAt(0))|0;},0).toString(36).replace('-','m');
   var showQadd=(vid==='all'||vid==='mine');
   var qaddBtn=showQadd
     ? '<button class="task-group-qadd-btn" title="このカテゴリにタスクを追加" onclick="toggleGroupQadd(event,\''+safeId+'\',\''+esc(name)+'\',\''+esc(vid||'')+'\')">＋</button>'
@@ -3118,7 +3130,7 @@ function openTaskModal(id,issueId,issueTitle,issueMemo){
   if(dueTimeEl) dueTimeEl.textContent = (t&&t.dueTime) ? '⏰ '+t.dueTime : '';
   document.getElementById('fTaskIssueId').value= t?(t.issueId||''):(issueId||'');
   document.getElementById('fTaskId').value=id||'';
-  var rec=!!(t&&t.recurringUnit);
+  var rec=!!(t&&(t.recurringOn===true||t.recurringOn==='true'||t.recurringUnit));
   document.getElementById('fRecurringOn').checked=rec;
   document.getElementById('recurringBox').style.display=rec?'':'none';
   document.getElementById('fTaskPrivate').checked=!!(t&&t.isPrivate);
@@ -3128,6 +3140,10 @@ function openTaskModal(id,issueId,issueTitle,issueMemo){
   toggleRecurTypeUI();
   document.getElementById('fRecurWeekday').value=(t&&t.recurringWeekday!=null)?t.recurringWeekday:1;
   document.getElementById('fRecurMonthday').value=(t&&t.recurringMonthday)?t.recurringMonthday:10;
+  // recurringBase 復元
+  var rbase=(t&&t.recurringBase)||'duedate';
+  var rbEl=document.getElementById('fRecurBase');
+  if(rbEl){ rbEl.value=rbase; selectRecurBase(rbase); }
   document.getElementById('fRecurN').value=t&&t.recurringN?t.recurringN:1;
   document.getElementById('fRecurUnit').value=t&&t.recurringUnit?t.recurringUnit:'week';
   document.getElementById('taskDelBtn').style.display=t?'':'none';
@@ -3161,6 +3177,27 @@ function toggleRecurTypeUI(){
   document.getElementById('recurFixedWeekday').style.display=(t==='fixed_weekday')?'':'none';
   document.getElementById('recurFixedMonthday').style.display=(t==='fixed_monthday')?'':'none';
   document.getElementById('recurRelative').style.display=(t==='relative')?'':'none';
+  // fixed_monthday / fixed_weekday のときに計算基準チップを表示
+  var baseRow=document.getElementById('recurBaseRow');
+  if(baseRow) baseRow.style.display=(t==='fixed_monthday'||t==='fixed_weekday')?'':'none';
+}
+function selectRecurBase(val){
+  document.getElementById('fRecurBase').value=val;
+  document.getElementById('chipCompletion').style.background=(val==='completion')?'var(--teal)':'white';
+  document.getElementById('chipCompletion').style.color=(val==='completion')?'white':'var(--teal)';
+  document.getElementById('chipDuedate').style.background=(val==='duedate')?'var(--teal)':'white';
+  document.getElementById('chipDuedate').style.color=(val==='duedate')?'white':'var(--teal)';
+  // 種別に応じてツールチップ説明を切り替え
+  var rtype=document.getElementById('fRecurType')?document.getElementById('fRecurType').value:'';
+  var isWeekly=(rtype==='fixed_weekday');
+  var cBody=document.querySelector('#chipCompletion .tt-body');
+  var dBody=document.querySelector('#chipDuedate .tt-body');
+  if(cBody) cBody.innerHTML=isWeekly
+    ?'完了した日を起点に次の◯曜日を計算します。<br>例：水曜に完了 → 翌週◯曜日'
+    :'完了した日を起点に翌月◯日を計算します。<br>例：6月10日に完了 → 7月◯日';
+  if(dBody) dBody.innerHTML=isWeekly
+    ?'元の期限日を起点に翌週◯曜日を計算します。<br>例：5月12日(月)期限 → 5月19日(月)'
+    :'元の期限日を起点に翌月◯日を計算します。<br>例：5月5日期限 → 6月5日（完了タイミング問わず）';
 }
 function saveTask(){
   var title=document.getElementById('fTaskTitle').value.trim();
@@ -3195,7 +3232,8 @@ function saveTask(){
     recurringWeekday:(rec&&rtype==='fixed_weekday')?parseInt(document.getElementById('fRecurWeekday').value):null,
     recurringMonthday:(rec&&rtype==='fixed_monthday')?parseInt(document.getElementById('fRecurMonthday').value):null,
     recurringN:(rec&&rtype==='relative')?parseInt(document.getElementById('fRecurN').value)||1:null,
-    recurringUnit:(rec&&rtype==='relative')?document.getElementById('fRecurUnit').value:null
+    recurringUnit:(rec&&rtype==='relative')?document.getElementById('fRecurUnit').value:null,
+    recurringBase:(rec&&rtype==='fixed_monthday')?document.getElementById('fRecurBase').value:'duedate'
   };
   // カテゴリ自動登録
   if(data.category && data.category!=='未分類' && _cats.indexOf(data.category)===-1){
@@ -3237,7 +3275,7 @@ function spawnNextRecurring(t){
   var now=new Date().toISOString();
   var nt={id:genId(),title:t.title,category:t.category,assignee:t.assignee,dueDate:nd,
     status:'todo',memo:t.memo,issueId:t.issueId,isPrivate:t.isPrivate||false,
-    recurringOn:true,recurringType:t.recurringType,recurringWeekday:t.recurringWeekday,
+    recurringOn:true,recurringType:t.recurringType,recurringBase:t.recurringBase||'duedate',recurringWeekday:t.recurringWeekday,
     recurringMonthday:t.recurringMonthday,recurringN:t.recurringN,recurringUnit:t.recurringUnit,
     classroom:t.classroom||'',taskType:t.taskType||'',dueTime:t.dueTime||'',
     createdBy:t.createdBy,createdAt:now,updatedAt:now};
@@ -3247,21 +3285,42 @@ function spawnNextRecurring(t){
   toast('🔁 繰り返しタスクを自動作成しました（'+nd+'）');
 }
 function calcNextRecurDue(t){
+  // toISOString()はUTC変換で日本時間と1日ずれるため、ローカル日付フォーマット関数を使う
+  function localDateStr(d){
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
   var rtype=t.recurringType||'relative';
   var today=new Date(); today.setHours(0,0,0,0);
   if(rtype==='fixed_weekday'){
-    // 今日の翌週以降で指定曜日の最初の日
     var wd=t.recurringWeekday!=null?t.recurringWeekday:1;
-    var d=new Date(today); d.setDate(d.getDate()+1);
-    while(d.getDay()!==wd) d.setDate(d.getDate()+1);
-    return d.toISOString().slice(0,10);
+    var base=(t.recurringBase||'duedate');
+    if(base==='duedate'&&t.dueDate){
+      // 期限日基準：元の期限日の翌週◯曜日
+      var d=new Date(t.dueDate+'T00:00:00');
+      d.setDate(d.getDate()+1);
+      while(d.getDay()!==wd) d.setDate(d.getDate()+1);
+      return localDateStr(d);
+    } else {
+      // 完了日基準：今日以降の次の◯曜日
+      var d=new Date(today); d.setDate(d.getDate()+1);
+      while(d.getDay()!==wd) d.setDate(d.getDate()+1);
+      return localDateStr(d);
+    }
   }
   if(rtype==='fixed_monthday'){
-    // 翌月の指定日
     var day=t.recurringMonthday||10;
-    var d=new Date(today);
-    d.setDate(1); d.setMonth(d.getMonth()+1); d.setDate(day);
-    return d.toISOString().slice(0,10);
+    var base=(t.recurringBase||'duedate');
+    if(base==='duedate'&&t.dueDate){
+      // 期限日基準：元の期限日の翌月◯日
+      var d=new Date(t.dueDate+'T00:00:00');
+      d.setDate(1); d.setMonth(d.getMonth()+1); d.setDate(day);
+      return localDateStr(d);
+    } else {
+      // 完了日基準：今日の翌月◯日
+      var d=new Date(today);
+      d.setDate(1); d.setMonth(d.getMonth()+1); d.setDate(day);
+      return localDateStr(d);
+    }
   }
   // relative: 元の期限日から計算（後方互換）
   if(!t.dueDate) return null;
@@ -3271,7 +3330,7 @@ function calcNextRecurDue(t){
   if(t.recurringUnit==='week')  d.setDate(d.getDate()+n*7);
   if(t.recurringUnit==='month') d.setMonth(d.getMonth()+n);
   if(t.recurringUnit==='year')  d.setFullYear(d.getFullYear()+n);
-  return d.toISOString().slice(0,10);
+  return localDateStr(d);
 }
 function deleteCurrentTask(){
   var t=_tasks.find(function(x){return x.id===_curTaskId;});
