@@ -4292,8 +4292,11 @@ function inlineEditCat(e,id){
 }
 function toggleTaskMemo(e,id){
   e.stopPropagation();
-  var body=document.getElementById('tmemo-'+id);
   var btn=e.currentTarget;
+  // 同じIDがすべて・マイタスクに重複するためgetElementByIdは使わない
+  // ボタンの親（task-memo-row）内のtask-memo-bodyを取得
+  var row=btn.closest('.task-memo-row');
+  var body=row?row.querySelector('.task-memo-body'):null;
   if(!body) return;
   var open=body.style.display!=='none';
   body.style.display=open?'none':'';
