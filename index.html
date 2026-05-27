@@ -2515,7 +2515,7 @@ function renderTaskCard(t){
     gcalBtn='<a class="btn-icon" href="'+gcal+'" target="_blank" rel="noopener" title="カレンダーに追加" style="font-size:13px;text-decoration:none;">📅</a>';
   }
   // 手動並び替えボタン（▲▼）- ソート適用中は非表示
-  var _anav=document.querySelector('.side-nav-btn.active');
+  var _anav=document.querySelector('.side-nav-item.active');
   var _avid=_anav?(_anav.dataset?_anav.dataset.vid:_anav.getAttribute('data-vid')):'';
   var _asorts=(_avid&&_viewSorts&&_viewSorts[_avid])?_viewSorts[_avid].filter(function(s){return s.key;}):[];
   var manualSortBtns=_asorts.length>0?'':'<span style="display:inline-flex;flex-direction:column;gap:0px;margin-left:2px;">'
@@ -3406,7 +3406,7 @@ function bulkIssueProjectify(){
   });
   var n=ids.length;
   clearBulkIssue();
-  renderBoard(); renderSideNav();
+  renderBoard(); renderProjectNav(); renderCustomViewNav();
   toast('📁 '+n+'件をプロジェクト化しました');
 }
 
@@ -3569,14 +3569,14 @@ function bulkDeleteTasks(){
 }
 
 function bulkDeletePtasks(){
-  if(!_currentProjectId) return;
-  var proj=_projects.find(function(p){return p.id===_currentProjectId;});
+  if(!_activeProjectId) return;
+  var proj=_projects.find(function(p){return p.id===_activeProjectId;});
   if(!proj||_bulkSelectedPtask.size===0) return;
   var count=_bulkSelectedPtask.size;
   if(!confirm(count+'件のタスクを削除しますか？この操作は元に戻せません。')) return;
   proj.tasks=(proj.tasks||[]).filter(function(t){ return !_bulkSelectedPtask.has(t.id); });
   clearBulkPtask();
-  saveLocal(); renderProject(_currentProjectId); autoSaveMasterToGas();
+  saveLocal(); renderProjectDetail(_activeProjectId); autoSaveMasterToGas();
   toast('🗑 '+count+'件削除しました');
 }
 
@@ -5739,7 +5739,7 @@ function renderSettings(){
       :hidden.map(function(cv){
           return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);">'
             +'<span style="font-size:13px;">📌 '+esc(cv.name)+(cv.sharedBy?'<span style="font-size:10px;color:var(--text-light);margin-left:6px;">by '+esc(cv.sharedBy)+'</span>':'')+'</span>'
-            +'<button class="btn-secondary" onclick="showCv(\'"+cv.id+"\')" style="font-size:11px;padding:3px 10px;">再表示</button>'
+            +'<button class="btn-secondary" onclick="showCv(\''+cv.id+'\')" style="font-size:11px;padding:3px 10px;">再表示</button>'
             +'</div>';
         }).join('');
   }
@@ -8686,5 +8686,8 @@ function unlinkProjParent(){
   <button class="bulk-btn bulk-btn-danger" onclick="bulkDeletePtasks()">🗑 削除</button>
   <div class="bulk-sep"></div>
   <button class="bulk-clear" onclick="clearBulkPtask()">✕ 選択解除</button>
+</div>
+<div id="bulk-action-bar-issue" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:1000;background:#1e293b;color:white;padding:10px 16px;align-items:center;gap:8px;font-size:13px;">
+  <span style="font-weight:700;color:#fbbf24;" id="bulk-count-label-issue">0件選択中</span>
 </div>
 </body></html>
