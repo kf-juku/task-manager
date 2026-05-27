@@ -36,6 +36,8 @@ body { font-family: 'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif; backg
 .side-nav-item-label { display: flex; align-items: center; gap: 7px; }
 .side-nav-count { font-size: 10px; background: var(--surface2); color: var(--text-muted); border-radius: 10px; padding: 1px 6px; font-weight: 700; }
 .side-nav-item.active .side-nav-count { background: var(--crimson-mid); color: white; }
+.cv-edit-btn { font-size:11px; padding:0 3px; cursor:pointer; color:var(--text-muted); border-radius:5px; flex-shrink:0; }
+.cv-edit-btn:hover { background:var(--surface2); color:var(--text); }
 .side-nav-add-view { display: flex; align-items: center; gap: 6px; padding: 8px 14px; cursor: pointer; border: none; background: none; font-family: inherit; font-size: 11.5px; color: var(--text-light); width: 100%; text-align: left; }
 .side-nav-add-view:hover { color: var(--crimson); }
 .side-nav-footer { padding: 10px 14px; border-top: 1px solid #e8ecf0; margin-top: auto; }
@@ -1634,10 +1636,8 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">カテゴリで絞り込む</label>
-        <select class="form-select" id="fCvCat">
-          <option value="">絞り込まない</option>
-        </select>
+        <label class="form-label">カテゴリで絞り込む（複数選択可）</label>
+        <div id="fCvCatList" style="display:flex;flex-wrap:wrap;gap:6px;padding:6px 0;max-height:160px;overflow-y:auto;"></div>
       </div>
       <div class="form-group">
         <label class="form-label">ステータスで絞り込む</label>
@@ -2105,10 +2105,10 @@ function renderCustomViewNav(){
   nav.innerHTML=_cvs.map(function(cv){
     var cnt=getFilteredTasks(cv).filter(function(t){return t.status!=='done';}).length;
     return '<button class="side-nav-item'+((_activeView===cv.id)?' active':'')+'" id="snv-'+cv.id+'" onclick="switchView(\''+cv.id+'\')">'
-      +'<span class="side-nav-item-label">📌 '+esc(cv.name)+'</span>'
+      +'<span class="side-nav-item-label" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📌 '+esc(cv.name)+'</span>'
       +'<span style="display:flex;gap:3px;align-items:center;">'
       +'<span class="side-nav-count">'+cnt+'</span>'
-      +'<button class="btn-icon" onclick="openCustomViewModal(\''+cv.id+'\');event.stopPropagation();" title="編集" style="padding:0 3px;font-size:11px;">✏️</button>'
+      +'<span role="button" onclick="openCustomViewModal(\''+cv.id+'\');event.stopPropagation();" title="編集" class="cv-edit-btn">✏️</span>'
       +'</span></button>';
   }).join('');
   // カスタムビューパネル生成
@@ -2305,7 +2305,9 @@ function renderTaskView(vid){
 function matchCv(t,cv){
   var today=todayStr();
   if(cv.assignee&&t.assignee!==cv.assignee) return false;
-  if(cv.category&&t.category!==cv.category) return false;
+  // categories（配列）優先、後方互換でcategory（文字列）も対応
+  var _cvCats=cv.categories&&cv.categories.length?cv.categories:(cv.category?[cv.category]:[]);
+  if(_cvCats.length>0&&_cvCats.indexOf(t.category)<0) return false;
   if(cv.status&&t.status!==cv.status) return false;
   if(cv.overdue&&!(t.dueDate&&toIsoDate(t.dueDate)<today)) return false;
   return true;
@@ -4375,11 +4377,16 @@ function openCustomViewModal(id){
   document.getElementById('cvModalTitle').textContent=cv?'カスタムビューを編集':'カスタムビューを追加';
   var as=document.getElementById('fCvAsg');
   as.innerHTML='<option value="">絞り込まない</option>'+_asgs.map(function(a){return '<option value="'+esc(a)+'">'+esc(a)+'</option>';}).join('');
-  var cs=document.getElementById('fCvCat');
-  cs.innerHTML='<option value="">絞り込まない</option>'+_cats.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('');
+  // カテゴリチェックボックスリストを生成
+  var selectedCats=(cv&&cv.categories)?cv.categories:(cv&&cv.category?[cv.category]:[]);
+  var catList=document.getElementById('fCvCatList');
+  catList.innerHTML=_cats.map(function(c){
+    var checked=selectedCats.indexOf(c)>=0?'checked':'';
+    return '<label style="display:flex;align-items:center;gap:4px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:3px 8px;cursor:pointer;white-space:nowrap;">'
+      +'<input type="checkbox" class="cv-cat-check" value="'+esc(c)+'" '+checked+' style="accent-color:var(--crimson);">'+esc(c)+'</label>';
+  }).join('');
   document.getElementById('fCvName').value=cv?cv.name:'';
   as.value=cv?(cv.assignee||''):'';
-  cs.value=cv?(cv.category||''):'';
   document.getElementById('fCvStatus').value=cv?(cv.status||''):'';
   document.getElementById('fCvOverdue').checked=!!(cv&&cv.overdue);
   document.getElementById('fCvId').value=id||'';
@@ -4390,7 +4397,8 @@ function closeCvModal(){ hideOv('cvOverlay'); }
 function saveCustomView(){
   var name=document.getElementById('fCvName').value.trim();
   if(!name){alert('ビュー名を入力してください');return;}
-  var data={name:name,assignee:document.getElementById('fCvAsg').value,category:document.getElementById('fCvCat').value,status:document.getElementById('fCvStatus').value,overdue:document.getElementById('fCvOverdue').checked};
+  var _checkedCats=[].slice.call(document.querySelectorAll('#fCvCatList .cv-cat-check:checked')).map(function(cb){return cb.value;});
+  var data={name:name,assignee:document.getElementById('fCvAsg').value,categories:_checkedCats,category:'',status:document.getElementById('fCvStatus').value,overdue:document.getElementById('fCvOverdue').checked};
   data.sharedBy=_settings.myName||'';
   var savedId;
   if(_curCvId){
@@ -6414,8 +6422,10 @@ async function aiSummarizeAll(){
   var actions=extractActionsFromAiText(result);
   if(actions.length>0){ applyAiActionsDirectly(actions); }
 }
+var _lastMasterSaveTime = 0;
 function autoSaveMasterToGas(){
   if(!_settings.gasUrl) return;
+  _lastMasterSaveTime = Date.now(); // 保存時刻を記録
   var fd=new FormData();
   fd.append('action','saveMaster');
   fd.append('master',JSON.stringify({categories:_cats, assignees:_asgs, templates:_tpls}));
@@ -6712,8 +6722,12 @@ function syncFromGas(){
       if(d.master){
         var m=d.master;
         if(m.categories&&m.categories.length>0){
-          // ローカルにあってGASにないものは追加（ローカル優先でマージ）
-          m.categories.forEach(function(c){ if(_cats.indexOf(c)===-1) _cats.push(c); });
+          // 直近60秒以内にsaveMasterした場合はローカルが正なのでスキップ
+          // （削除直後のsyncでカテゴリが復活するのを防ぐ）
+          var recentlySaved = (Date.now() - _lastMasterSaveTime) < 60 * 1000;
+          if(!recentlySaved){
+            m.categories.forEach(function(c){ if(_cats.indexOf(c)===-1) _cats.push(c); });
+          }
         }
         if(m.assignees&&m.assignees.length>0){
           m.assignees.forEach(function(a){ if(_asgs.indexOf(a)===-1) _asgs.push(a); });
