@@ -88,6 +88,11 @@ body { font-family: 'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif; backg
 .task-group-name { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .task-group-count { font-size: 10.5px; background: var(--surface2); color: var(--text-muted); border-radius: 10px; padding: 1px 7px; font-weight: 700; }
 .task-group-toggle { font-size: 10px; color: var(--text-light); }
+.cat-jump-bar { display:flex; gap:5px; overflow-x:auto; padding:5px 16px 4px; flex-shrink:0; scrollbar-width:none; }
+.cat-jump-bar::-webkit-scrollbar { display:none; }
+.cat-jump-chip { font-size:11px; padding:2px 10px; border-radius:20px; border:1.5px solid var(--border); background:white; color:var(--text-muted); cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all 0.1s; }
+.cat-jump-chip:hover { border-color:var(--crimson); color:var(--crimson); background:var(--crimson-pale); }
+.cat-jump-bar-wrap { border-bottom:1px solid var(--border); background:#fafbfc; }
 .task-group-qadd-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 4px; flex-shrink: 0; opacity: 0.55; transition: opacity 0.15s, background 0.15s; }
 .task-group-qadd-btn:hover { opacity: 1; background: var(--surface2); color: var(--blue); }
 /* qadd-row は quick-add-bar と同じ見た目 */
@@ -935,6 +940,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
       </div>
       <span class="filter-count" id="cnt-label-all"></span>
     </div>
+    <div class="cat-jump-bar-wrap" id="catJumpWrap-all" style="display:none;"><div class="cat-jump-bar" id="catJumpBar-all"></div></div>
     <div id="taskBody-all"></div>
   </div>
 
@@ -996,6 +1002,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
       </div>
       <span class="filter-count" id="cnt-label-mine"></span>
     </div>
+    <div class="cat-jump-bar-wrap" id="catJumpWrap-mine" style="display:none;"><div class="cat-jump-bar" id="catJumpBar-mine"></div></div>
     <div id="taskBody-mine"></div>
   </div>
 
@@ -2310,9 +2317,32 @@ function renderTaskView(vid){
   }
   var body=document.getElementById('taskBody-'+vid);
   if(body) body.innerHTML=html;
+  // カテゴリジャンプバー更新（all/mine のみ）
+  if(vid==='all'||vid==='mine'){
+    var jumpWrap=document.getElementById('catJumpWrap-'+vid);
+    var jumpBar=document.getElementById('catJumpBar-'+vid);
+    var jumpCats=sortedKeys.filter(function(k){return k!=='__sorted__';});
+    if(jumpBar&&jumpCats.length>1){
+      jumpBar.innerHTML=jumpCats.map(function(k){
+        var safeId='cat_'+k.split('').reduce(function(h,c){return(((h<<5)-h)+c.charCodeAt(0))|0;},0).toString(36).replace('-','m');
+        return '<span class="cat-jump-chip" onclick="jumpToCat('tg-'+safeId+'','vp-'+vid+'')">'+esc(k)+'</span>';
+      }).join('');
+      if(jumpWrap) jumpWrap.style.display='';
+    } else {
+      if(jumpWrap) jumpWrap.style.display='none';
+    }
+  }
   var cl=document.getElementById('cnt-label-'+vid);
   if(cl) cl.textContent=active.length+'件';
   updateCounts();
+}
+function jumpToCat(groupId, panelId){
+  var group=document.getElementById(groupId);
+  var panel=document.getElementById(panelId);
+  if(!group||!panel) return;
+  var panelTop=panel.getBoundingClientRect().top;
+  var groupTop=group.getBoundingClientRect().top;
+  panel.scrollTop+=(groupTop-panelTop)-8;
 }
 function matchCv(t,cv){
   var today=todayStr();
