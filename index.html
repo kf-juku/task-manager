@@ -2805,7 +2805,7 @@ function setQuickDate(vid, type, btn) {
     return;
   }
   var today = todayStr();
-  var tomorrow = (function(){ var d=new Date(); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
+  var tomorrow = (function(){ var d=new Date(); d.setDate(d.getDate()+1); return isoDate(d); })();
   var date = type==='today' ? today : tomorrow;
   _quickDate[vid] = date;
   // 日付ピッカーも更新
@@ -5680,7 +5680,7 @@ function renderAchievements(){
   var days30={};
   for(var d=29;d>=0;d--){
     var dt=new Date(); dt.setDate(dt.getDate()-d);
-    days30[dt.toISOString().slice(0,10)]=0;
+    days30[isoDate(dt)]=0;
   }
   done.forEach(function(t){
     var day=(t.updatedAt||'').slice(0,10);
@@ -6976,7 +6976,7 @@ function buildGcalUrl(t){
   if(!t.dueDate) return '';
   var d=t.dueDate.replace(/-/g,'');
   var n=new Date(t.dueDate); n.setDate(n.getDate()+1);
-  var d2=n.toISOString().slice(0,10).replace(/-/g,'');
+  var d2=isoDate(n).replace(/-/g,'');
   var det=[]; if(t.assignee) det.push('担当：'+t.assignee); if(t.memo) det.push(t.memo);
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text='+encodeURIComponent(t.title)+'&dates='+d+'/'+d2+(det.length?'&details='+encodeURIComponent(det.join('\n')):'');
 }
@@ -7025,7 +7025,8 @@ function stripHtmlTags(s){
   var tmp=document.createElement('div'); tmp.innerHTML=s; return tmp.textContent||tmp.innerText||'';
 }
 function sj(s,fb){ try{return JSON.parse(s)||fb;}catch(e){return fb;} }
-function todayStr(){ return new Date().toISOString().slice(0,10); }
+function isoDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function todayStr(){ return isoDate(new Date()); }
 // 任意形式の日付文字列を YYYY-MM-DD に正規化（input[type=date] 用）
 function toIsoDate(v){
   if(!v) return '';
@@ -7038,7 +7039,7 @@ function toIsoDate(v){
   return d.getFullYear()+'-'+mm+'-'+dd;
 }
 function fmtDate(iso){ if(!iso) return ''; var d=new Date(iso); return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate(); }
-function offsetDate(base,n){ var d=new Date(base); d.setDate(d.getDate()+(n||0)); return d.toISOString().slice(0,10); }
+function offsetDate(base,n){ var d=new Date(base); d.setDate(d.getDate()+(n||0)); return isoDate(d); }
 function showOv(id){ document.getElementById(id).classList.add('show'); }
 function hideOv(id){ document.getElementById(id).classList.remove('show'); }
 
@@ -7530,7 +7531,7 @@ function renderProjectDetail(id){
         +'</div>'
         +'<div class="project-pane-body" id="pbody-log-'+id+'">'
           +'<div class="project-log-input-area">'
-            +'<input type="date" class="project-log-date-input" id="plog-date-'+id+'" value="'+new Date().toISOString().slice(0,10)+'">'
+            +'<input type="date" class="project-log-date-input" id="plog-date-'+id+'" value="'+isoDate(new Date())+'">'
             +'<input type="text" class="project-log-assignee-input" id="plog-assignee-'+id+'" placeholder="担当者" value="'+esc(_settings.myName||'')+'">'
             +'<textarea class="project-log-content-input" id="plog-content-'+id+'" placeholder="やったこと（Enterで追加）" rows="1" onkeydown="addProjLogKey(event,\''+id+'\')"></textarea>'
             +'<button class="btn-primary" onclick="addProjLog(\''+id+'\')">追加</button>'
@@ -8205,7 +8206,7 @@ function addProjLog(projId){
   var p=_projects.find(function(x){return x.id===projId;}); if(!p) return;
   p.logs=p.logs||[];
   p.logs.push({
-    date: dateEl.value||new Date().toISOString().slice(0,10),
+    date: dateEl.value||isoDate(new Date()),
     assignee: assigneeEl?assigneeEl.value.trim():(_settings.myName||''),
     content: content
   });
