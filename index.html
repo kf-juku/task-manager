@@ -910,7 +910,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
         <input type="time" class="quick-time-input" id="quick-time-all" placeholder="⏰時刻" onmousedown="event.stopPropagation()" oninput="onQuickTimeInput('all',this)">
         <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:13px;padding:1px 4px;border:none;background:none;">📅</span><span class="tt-body">📅 <b>Gカレ自動登録の条件（3点すべて必要）</b><br>① タスクに<b>教室</b>が設定されている<br>② <b>期限日＋時刻</b>が両方設定されている<br>③ 設定タブの教室×カレンダーで<b>書出がON</b>になっている</span></span>
         <span style="width:1px;height:18px;background:var(--border);display:inline-block;flex-shrink:0;"></span>
-        <select class="quick-add-sel" id="quick-cat-all" title="カテゴリ" onmousedown="event.stopPropagation()"></select>
+        <select class="quick-add-sel" id="quick-cat-all" title="カテゴリ" onmousedown="event.stopPropagation()" onchange="applyGcalCategoryDefaults(this.value,'all',null)"></select>
         <select class="quick-add-sel" id="quick-asg-all" title="担当者" onmousedown="event.stopPropagation()"></select>
         <select class="quick-add-sel" id="quick-cls-all" title="教室" onmousedown="event.stopPropagation()">
           <option value="">教室</option>
@@ -972,7 +972,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
         <input type="time" class="quick-time-input" id="quick-time-mine" placeholder="⏰時刻" onmousedown="event.stopPropagation()" oninput="onQuickTimeInput('mine',this)">
         <span class="tt" style="flex-shrink:0;" onmousedown="event.stopPropagation()"><span class="help-mark" style="font-size:13px;padding:1px 4px;border:none;background:none;">📅</span><span class="tt-body">📅 <b>Gカレ自動登録の条件（3点すべて必要）</b><br>① タスクに<b>教室</b>が設定されている<br>② <b>期限日＋時刻</b>が両方設定されている<br>③ 設定タブの教室×カレンダーで<b>書出がON</b>になっている</span></span>
         <span style="width:1px;height:18px;background:var(--border);display:inline-block;flex-shrink:0;"></span>
-        <select class="quick-add-sel" id="quick-cat-mine" title="カテゴリ" onmousedown="event.stopPropagation()"></select>
+        <select class="quick-add-sel" id="quick-cat-mine" title="カテゴリ" onmousedown="event.stopPropagation()" onchange="applyGcalCategoryDefaults(this.value,'mine',null)"></select>
         <select class="quick-add-sel" id="quick-asg-mine" title="担当者" onmousedown="event.stopPropagation()"></select>
         <select class="quick-add-sel" id="quick-cls-mine" title="教室" onmousedown="event.stopPropagation()">
           <option value="">教室</option>
@@ -3803,6 +3803,8 @@ function toggleGroupQadd(e, safeId, catName, vid){
       }
     }
     setTimeout(function(){ var inp=document.getElementById('qadd-inp-'+safeId); if(inp){inp.focus();openGroupQaddOpts(safeId);} }, 50);
+    // Gカレ対象カテゴリならデフォルト値をセット
+    setTimeout(function(){ applyGcalCategoryDefaults(catName, null, safeId); }, 60);
   }
 }
 function openGroupQaddOpts(safeId){
@@ -6144,6 +6146,62 @@ function gcalExportMapping(classroom) {
     if (maps[i].exportOn && maps[i].classroom === classroom && maps[i].calId) return maps[i];
   }
   return null;
+}
+
+// ---- Gカレ対象カテゴリ選択時にデフォルト値を自動セット ----
+var GCAL_AUTO_CATEGORIES = ['生徒対応', '問い合わせ対応'];
+var GCAL_DEFAULT_TIME = '13:00';
+var GCAL_DEFAULT_CLASSROOM = '北久里浜';
+
+function applyGcalCategoryDefaults(category, vid, safeId) {
+  if (GCAL_AUTO_CATEGORIES.indexOf(category) === -1) return;
+  var today = (function(){
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  })();
+
+  if (safeId) {
+    // カテゴリ別フォーム（qadd-*）
+    var key = 'gq_' + safeId;
+    // 期日：未設定のときだけ今日をセット
+    if (!_quickDate[key]) {
+      _quickDate[key] = today;
+      var dateEl = document.getElementById('qadd-date-' + safeId);
+      if (dateEl) dateEl.value = today;
+      // 「今日」ボタンをアクティブに
+      var row = document.getElementById('qadd-row-' + safeId);
+      if (row) {
+        row.querySelectorAll('.quick-date-btn').forEach(function(b){ b.classList.remove('active'); });
+        var btns = row.querySelectorAll('.quick-date-btn');
+        if (btns[0]) btns[0].classList.add('active');
+      }
+    }
+    // 時刻：未設定のときだけ13:00をセット
+    var timeEl = document.getElementById('qadd-time-' + safeId);
+    if (timeEl && !timeEl.value) timeEl.value = GCAL_DEFAULT_TIME;
+    // 教室：未設定のときだけ北久里浜をセット
+    var clsEl = document.getElementById('qadd-cls-' + safeId);
+    if (clsEl && !clsEl.value) clsEl.value = GCAL_DEFAULT_CLASSROOM;
+  } else if (vid) {
+    // クイック追加バー（quick-*-all / quick-*-mine）
+    // 期日：未設定のときだけ今日をセット
+    if (!_quickDate[vid]) {
+      _quickDate[vid] = today;
+      // 「今日」ボタンをアクティブに
+      var opts = document.getElementById('quick-opts-' + vid);
+      if (opts) {
+        opts.querySelectorAll('.quick-date-btn').forEach(function(b){ b.classList.remove('active'); });
+        var btns2 = opts.querySelectorAll('.quick-date-btn');
+        if (btns2[0]) btns2[0].classList.add('active');
+      }
+    }
+    // 時刻：未設定のときだけ13:00をセット
+    var timeEl2 = document.getElementById('quick-time-' + vid);
+    if (timeEl2 && !timeEl2.value) timeEl2.value = GCAL_DEFAULT_TIME;
+    // 教室：未設定のときだけ北久里浜をセット
+    var clsEl2 = document.getElementById('quick-cls-' + vid);
+    if (clsEl2 && !clsEl2.value) clsEl2.value = GCAL_DEFAULT_CLASSROOM;
+  }
 }
 
 function shouldAutoExportToGcal(task) {
