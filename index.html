@@ -90,9 +90,10 @@ body { font-family: 'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif; backg
 .task-group-toggle { font-size: 10px; color: var(--text-light); }
 .cat-jump-bar { display:flex; gap:5px; overflow-x:auto; padding:5px 16px 4px; flex-shrink:0; scrollbar-width:none; }
 .cat-jump-bar::-webkit-scrollbar { display:none; }
-.cat-jump-chip { font-size:11px; padding:2px 10px; border-radius:20px; border:1.5px solid var(--border); background:white; color:var(--text-muted); cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all 0.1s; }
-.cat-jump-chip:hover { border-color:var(--crimson); color:var(--crimson); background:var(--crimson-pale); }
-.cat-jump-bar-wrap { border-bottom:1px solid var(--border); background:#fafbfc; }
+.cat-jump-chip { font-size:10.5px; padding:2px 9px; border-radius:4px; border:none; background:var(--surface2); color:var(--text-muted); cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all 0.1s; }
+.cat-jump-chip:hover { background:var(--crimson-pale); color:var(--crimson); }
+.cat-jump-chip::before { content:'↓ '; font-size:9px; opacity:0.7; }
+.cat-jump-bar-wrap { border-bottom:1px solid var(--border); background:var(--bg); padding:2px 0; }
 .task-group-qadd-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 4px; flex-shrink: 0; opacity: 0.55; transition: opacity 0.15s, background 0.15s; }
 .task-group-qadd-btn:hover { opacity: 1; background: var(--surface2); color: var(--blue); }
 /* qadd-row は quick-add-bar と同じ見た目 */
@@ -2325,7 +2326,7 @@ function renderTaskView(vid){
     if(jumpBar&&jumpCats.length>1){
       jumpBar.innerHTML=jumpCats.map(function(k){
         var safeId='cat_'+k.split('').reduce(function(h,c){return(((h<<5)-h)+c.charCodeAt(0))|0;},0).toString(36).replace('-','m');
-        return '<span class="cat-jump-chip" onclick="jumpToCat(\'tg-'+safeId+'\',\'vp-'+vid+'\')">'+esc(k)+'</span>';
+        return '<span class="cat-jump-chip" onclick="jumpToCat(\'tg-'+safeId+'\')">'+esc(k)+'</span>';
       }).join('');
       if(jumpWrap) jumpWrap.style.display='';
     } else {
@@ -2336,13 +2337,11 @@ function renderTaskView(vid){
   if(cl) cl.textContent=active.length+'件';
   updateCounts();
 }
-function jumpToCat(groupId, panelId){
+function jumpToCat(groupId){
   var group=document.getElementById(groupId);
-  var panel=document.getElementById(panelId);
-  if(!group||!panel) return;
-  var panelTop=panel.getBoundingClientRect().top;
-  var groupTop=group.getBoundingClientRect().top;
-  panel.scrollTop+=(groupTop-panelTop)-8;
+  if(!group) return;
+  var top=group.getBoundingClientRect().top+window.scrollY-120;
+  window.scrollTo({top:top, behavior:'smooth'});
 }
 function matchCv(t,cv){
   var today=todayStr();
