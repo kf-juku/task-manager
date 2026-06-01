@@ -2359,7 +2359,7 @@ function renderTaskGroup(name,tasks,vid){
     return '<div class="task-group"><div class="task-group-body" style="border-radius:6px;overflow:hidden;margin:4px 16px 8px;">'+tasks.map(renderTaskCard).join('')+'</div></div>';
   }
   // カテゴリ名をハッシュ化してIDの衝突を防ぐ
-  var safeId='cat_'+name.split('').reduce(function(h,c){return (((h<<5)-h)+c.charCodeAt(0))|0;},0).toString(36).replace('-','m');
+  var safeId=(vid||'all')+'_cat_'+name.split('').reduce(function(h,c){return (((h<<5)-h)+c.charCodeAt(0))|0;},0).toString(36).replace('-','m');
   var showQadd=(vid==='all'||vid==='mine');
   var qaddBtn=showQadd
     ? '<button class="task-group-qadd-btn" title="このカテゴリにタスクを追加" onclick="toggleGroupQadd(event,\''+safeId+'\',\''+esc(name)+'\',\''+esc(vid||'')+'\')">＋</button>'
