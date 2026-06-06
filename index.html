@@ -2325,7 +2325,7 @@ function renderTaskView(vid){
     var jumpCats=sortedKeys.filter(function(k){return k!=='__sorted__';});
     if(jumpBar&&jumpCats.length>1){
       jumpBar.innerHTML=jumpCats.map(function(k){
-        var safeId='cat_'+k.split('').reduce(function(h,c){return(((h<<5)-h)+c.charCodeAt(0))|0;},0).toString(36).replace('-','m');
+        var safeId=vid+'_cat_'+k.split('').reduce(function(h,c){return(((h<<5)-h)+c.charCodeAt(0))|0;},0).toString(36).replace('-','m');
         return '<span class="cat-jump-chip" onclick="jumpToCat(\'tg-'+safeId+'\')">'+esc(k)+'</span>';
       }).join('');
       if(jumpWrap) jumpWrap.style.display='';
