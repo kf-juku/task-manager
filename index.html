@@ -3543,7 +3543,7 @@ function bulkDeleteIssue(){
   var ids=Array.from(_bulkSelectedIssue);
   ids.forEach(function(id){
     _issues=_issues.filter(function(x){return x.id!==id;});
-    if(_settings.gasUrl) fetch(_settings.gasUrl+'?action=deleteIssue&id='+encodeURIComponent(id)).catch(function(){});
+    deleteIssueFromGas(id);
   });
   clearBulkIssue();
   saveLocal(); renderBoard();
@@ -3556,7 +3556,7 @@ function bulkIssueChangeStatus(status){
     iss.status=status; iss.updatedAt=new Date().toISOString();
   });
   saveLocal();
-  _bulkSelectedIssue.forEach(function(id){ if(_settings.gasUrl) fetch(_settings.gasUrl+'?action=saveIssue&id='+encodeURIComponent(id)).catch(function(){}); });
+  _bulkSelectedIssue.forEach(function(id){ pushIssueToGas(id); });
   var n=_bulkSelectedIssue.size;
   clearBulkIssue();
   renderBoard();
@@ -3614,7 +3614,7 @@ function bulkDeletePtask(){
   var ids=Array.from(_bulkSelectedPtask);
   ids.forEach(function(id){
     _pitems=_pitems.filter(function(x){return x.id!==id;});
-    if(_settings.gasUrl) fetch(_settings.gasUrl+'?action=deleteProjItem&id='+encodeURIComponent(id)).catch(function(){});
+    deletePItemFromGas(id);
   });
   clearBulkPtask();
   saveLocal();
@@ -3629,6 +3629,7 @@ function bulkPtaskChangeStatus(status){
     it.content.status=status; it.updatedAt=new Date().toISOString();
   });
   saveLocal();
+  _bulkSelectedPtask.forEach(function(id){ pushPItemToGas(id); });
   var n=_bulkSelectedPtask.size;
   clearBulkPtask();
   if(_activeProjectId) renderProjectDetail(_activeProjectId);
