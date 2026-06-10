@@ -6898,7 +6898,14 @@ function syncFromGas(){
       saveLocal();
       // 一括選択中は再描画しない（チェック状態が消えるため）
       var inBulk = _bulkSelected.size>0 || _bulkSelectedIssue.size>0 || _bulkSelectedPtask.size>0;
-      if(!inBulk){ renderAllViews(); renderBoard(); renderProjectNav(); }
+      // インライン編集中も再描画しない（書きかけのタイトル・メモが消えるため。2026-06-11 GAS連携監査対応）
+      // ・.task-inline-edit / .detail-inline-edit：タイトル編集textarea
+      // ・.task-inline-input：期限・担当者・カテゴリのインライン入力
+      // ・.card-memo-rich[contenteditable="true"]：カードメモ編集中
+      // ・activeElement.isContentEditable：詳細メモ（#detailMemoText）・プロジェクトタスク名など常時contenteditable系
+      var editingInline = !!document.querySelector('.task-inline-edit, .task-inline-input, .detail-inline-edit, .card-memo-rich[contenteditable="true"]')
+        || !!(document.activeElement && document.activeElement.isContentEditable);
+      if(!inBulk && !editingInline){ renderAllViews(); renderBoard(); renderProjectNav(); }
       if(el) el.textContent='最終同期：'+new Date().toLocaleTimeString('ja-JP');
       // 同期ボタンを元に戻す
       _syncing = false;
