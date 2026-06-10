@@ -280,17 +280,17 @@ body { font-family: 'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif; backg
 .bulk-mode-issue .issue-card { cursor: pointer; }
 .bulk-mode-ptask .project-task-item { cursor: pointer; }
 /* 一括操作バー */
-#bulk-action-bar, #bulk-action-bar-ptask { position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000; background: #1e293b; color: white; display: none; align-items: center; gap: 8px; padding: 10px 16px; box-shadow: 0 -4px 16px rgba(0,0,0,0.25); font-size: 13px; flex-wrap: wrap; }
+#bulk-action-bar, #bulk-action-bar-ptask, #bulk-action-bar-issue { position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000; background: #1e293b; color: white; display: none; align-items: center; gap: 8px; padding: 10px 16px; box-shadow: 0 -4px 16px rgba(0,0,0,0.25); font-size: 13px; flex-wrap: wrap; }
 #bulk-action-bar.open { display: flex; }
 #bulk-action-bar-ptask.open { display: flex !important; }
-#bulk-action-bar-issue.open { display: flex; }
-#bulk-action-bar .bulk-count, #bulk-action-bar-ptask .bulk-count { font-weight: 700; color: #fbbf24; margin-right: 4px; white-space: nowrap; }
-#bulk-action-bar .bulk-sep, #bulk-action-bar-ptask .bulk-sep { width: 1px; height: 22px; background: rgba(255,255,255,0.2); flex-shrink: 0; }
-#bulk-action-bar button, #bulk-action-bar select, #bulk-action-bar-ptask button, #bulk-action-bar-ptask select { font-family: inherit; font-size: 12px; border-radius: 6px; border: none; cursor: pointer; padding: 5px 11px; transition: background 0.1s; }
-#bulk-action-bar .bulk-btn, #bulk-action-bar-ptask .bulk-btn { background: rgba(255,255,255,0.12); color: white; }
-#bulk-action-bar .bulk-btn:hover, #bulk-action-bar-ptask .bulk-btn:hover { background: rgba(255,255,255,0.22); }
-#bulk-action-bar .bulk-btn-danger, #bulk-action-bar-ptask .bulk-btn-danger { background: #dc2626; color: white; }
-#bulk-action-bar .bulk-btn-danger:hover, #bulk-action-bar-ptask .bulk-btn-danger:hover { background: #b91c1c; }
+#bulk-action-bar-issue.open { display: flex !important; }
+#bulk-action-bar .bulk-count, #bulk-action-bar-ptask .bulk-count, #bulk-action-bar-issue .bulk-count { font-weight: 700; color: #fbbf24; margin-right: 4px; white-space: nowrap; }
+#bulk-action-bar .bulk-sep, #bulk-action-bar-ptask .bulk-sep, #bulk-action-bar-issue .bulk-sep { width: 1px; height: 22px; background: rgba(255,255,255,0.2); flex-shrink: 0; }
+#bulk-action-bar button, #bulk-action-bar select, #bulk-action-bar-ptask button, #bulk-action-bar-ptask select, #bulk-action-bar-issue button, #bulk-action-bar-issue select { font-family: inherit; font-size: 12px; border-radius: 6px; border: none; cursor: pointer; padding: 5px 11px; transition: background 0.1s; }
+#bulk-action-bar .bulk-btn, #bulk-action-bar-ptask .bulk-btn, #bulk-action-bar-issue .bulk-btn { background: rgba(255,255,255,0.12); color: white; }
+#bulk-action-bar .bulk-btn:hover, #bulk-action-bar-ptask .bulk-btn:hover, #bulk-action-bar-issue .bulk-btn:hover { background: rgba(255,255,255,0.22); }
+#bulk-action-bar .bulk-btn-danger, #bulk-action-bar-ptask .bulk-btn-danger, #bulk-action-bar-issue .bulk-btn-danger { background: #dc2626; color: white; }
+#bulk-action-bar .bulk-btn-danger:hover, #bulk-action-bar-ptask .bulk-btn-danger:hover, #bulk-action-bar-issue .bulk-btn-danger:hover { background: #b91c1c; }
 #bulk-action-bar .bulk-sel { background: rgba(255,255,255,0.1); color: white; min-width: 90px; }
 #bulk-action-bar .bulk-sel option { background: #1e293b; color: white; }
 #bulk-action-bar .bulk-clear, #bulk-action-bar-ptask .bulk-clear { background: none; color: rgba(255,255,255,0.5); font-size: 11px; padding: 4px 8px; }
@@ -3658,18 +3658,6 @@ function bulkDeleteTasks(){
   _tasks=_tasks.filter(function(t){ return !_bulkSelected.has(t.id); });
   clearBulkAll();
   saveLocal(); renderAllViews(); autoSaveMasterToGas();
-  toast('🗑 '+count+'件削除しました');
-}
-
-function bulkDeletePtasks(){
-  if(!_activeProjectId) return;
-  var proj=_projects.find(function(p){return p.id===_activeProjectId;});
-  if(!proj||_bulkSelectedPtask.size===0) return;
-  var count=_bulkSelectedPtask.size;
-  if(!confirm(count+'件のタスクを削除しますか？この操作は元に戻せません。')) return;
-  proj.tasks=(proj.tasks||[]).filter(function(t){ return !_bulkSelectedPtask.has(t.id); });
-  clearBulkPtask();
-  saveLocal(); renderProjectDetail(_activeProjectId); autoSaveMasterToGas();
   toast('🗑 '+count+'件削除しました');
 }
 
@@ -8862,9 +8850,9 @@ function unlinkProjParent(){
   <div class="bulk-popup-wrap">
     <button class="bulk-popup-btn" onclick="toggleBulkPopup('bulk-pop-status-ptask')">ステータス変更</button>
     <div class="bulk-popup-menu" id="bulk-pop-status-ptask">
-      <button class="bulk-popup-item" onclick="bulkChangePtaskStatus('todo');closeBulkPopups()">未着手</button>
-      <button class="bulk-popup-item" onclick="bulkChangePtaskStatus('doing');closeBulkPopups()">進行中</button>
-      <button class="bulk-popup-item" onclick="bulkChangePtaskStatus('done');closeBulkPopups()">完了</button>
+      <button class="bulk-popup-item" onclick="bulkPtaskChangeStatus('todo');closeBulkPopups()">未着手</button>
+      <button class="bulk-popup-item" onclick="bulkPtaskChangeStatus('doing');closeBulkPopups()">進行中</button>
+      <button class="bulk-popup-item" onclick="bulkPtaskChangeStatus('done');closeBulkPopups()">完了</button>
     </div>
   </div>
   <div class="bulk-popup-wrap">
@@ -8872,11 +8860,31 @@ function unlinkProjParent(){
     <div class="bulk-popup-menu" id="bulk-pop-asg-ptask"></div>
   </div>
   <div class="bulk-sep"></div>
-  <button class="bulk-btn bulk-btn-danger" onclick="bulkDeletePtasks()">🗑 削除</button>
+  <button class="bulk-btn bulk-btn-danger" onclick="bulkDeletePtask()">🗑 削除</button>
   <div class="bulk-sep"></div>
   <button class="bulk-clear" onclick="clearBulkPtask()">✕ 選択解除</button>
 </div>
-<div id="bulk-action-bar-issue" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:1000;background:#1e293b;color:white;padding:10px 16px;align-items:center;gap:8px;font-size:13px;">
-  <span style="font-weight:700;color:#fbbf24;" id="bulk-count-label-issue">0件選択中</span>
+<div id="bulk-action-bar-issue">
+  <span class="bulk-count" id="bulk-count-label-issue">0件選択</span>
+  <div class="bulk-sep"></div>
+  <div class="bulk-popup-wrap">
+    <button class="bulk-popup-btn" onclick="toggleBulkPopup('bulk-pop-status-issue')">ステータス変更</button>
+    <div class="bulk-popup-menu" id="bulk-pop-status-issue">
+      <button class="bulk-popup-item" onclick="bulkIssueChangeStatus('todo');closeBulkPopups()">未着手</button>
+      <button class="bulk-popup-item" onclick="bulkIssueChangeStatus('doing');closeBulkPopups()">進行中</button>
+      <button class="bulk-popup-item" onclick="bulkIssueChangeStatus('done');closeBulkPopups()">完了</button>
+    </div>
+  </div>
+  <div class="bulk-popup-wrap">
+    <button class="bulk-popup-btn" onclick="toggleBulkPopup('bulk-pop-issue-asg')">担当者変更</button>
+    <div class="bulk-popup-menu" id="bulk-pop-issue-asg"></div>
+  </div>
+  <div class="bulk-sep"></div>
+  <button class="bulk-btn" onclick="bulkIssueTaskify()">📋 タスク化</button>
+  <button class="bulk-btn" onclick="bulkIssueProjectify()">📁 プロジェクト化</button>
+  <div class="bulk-sep"></div>
+  <button class="bulk-btn bulk-btn-danger" onclick="bulkDeleteIssue()">🗑 削除</button>
+  <div class="bulk-sep"></div>
+  <button class="bulk-clear" onclick="clearBulkIssue()">✕ 選択解除</button>
 </div>
 </body></html>
