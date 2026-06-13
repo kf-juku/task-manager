@@ -1909,6 +1909,8 @@ var DEFAULT_TPLS = [
 ];
 var _issues=[], _tasks=[], _cats=[], _asgs=[], _settings={gasUrl:'',myName:''}, _cvs=[], _tpls=[], _hiddenCvs=[];
 var _deletedTaskIds=new Set(); // 削除済みタスクID（sync時に復活防止）
+var _quickAddBusy=false; // クイック追加連打防止
+var _saveTaskBusy=false; // タスク保存ボタン連打防止
 var _bulkSelected=new Set(); // 一括操作で選択中のタスクID
 var _bulkSelectedIssue=new Set(); // 課題ボード一括選択
 var _bulkSelectedPtask=new Set(); // プロジェクトタスク一括選択
@@ -2886,10 +2888,13 @@ function setQuickType(vid, type, btn) {
 // ===== クイック追加 =====
 function quickAddTask(e,vid){
   if(e.key!=='Enter') return;
+  if(_quickAddBusy) return;
+  _quickAddBusy=true;
+  setTimeout(function(){ _quickAddBusy=false; },500);
   e.preventDefault();
   var inp=e.target;
   var title=inp.value.trim();
-  if(!title) return;
+  if(!title){ _quickAddBusy=false; return; }
   var now=new Date().toISOString();
   var catEl=document.getElementById('quick-cat-'+vid);
   var asgEl=document.getElementById('quick-asg-'+vid);
@@ -3231,8 +3236,10 @@ function selectRecurBase(val){
     :'元の期限日を起点に翌月◯日を計算します。<br>例：5月5日期限 → 6月5日（完了タイミング問わず）';
 }
 function saveTask(){
+  if(_saveTaskBusy) return;
+  _saveTaskBusy=true;
   var title=document.getElementById('fTaskTitle').value.trim();
-  if(!title){alert('タイトルを入力してください');return;}
+  if(!title){ _saveTaskBusy=false; alert('タイトルを入力してください');return; }
   var _taskType=document.getElementById('fTaskType').value||'';
   var _classroom=document.getElementById('fTaskClassroom').value||'';
   if(_taskType && !_classroom){
@@ -3286,6 +3293,7 @@ function saveTask(){
   saveLocal();
   renderAllViews();
   renderBoard();
+  _saveTaskBusy=false;
   closeTaskModal();
   toast(isNew?'タスクを追加しました':'タスクを更新しました');
   // 課題からタスク化した場合はタスク一覧タブへ切り替え
@@ -6895,6 +6903,15 @@ function syncFromGas(){
           if(!recentlySavedTpl && _tpls.length===0){ _tpls=m.templates; }
         }
       }
+      // GASに存在しないIDはKDTから除去（肥大化防止）
+      if(d.tasks){
+        var gasTaskIds=new Set((d.tasks||[]).map(function(t){return t.id;}));
+        var before=_deletedTaskIds.size;
+        _deletedTaskIds=new Set([..._deletedTaskIds].filter(function(id){return gasTaskIds.has(id);}));
+        if(_deletedTaskIds.size!==before){
+          localStorage.setItem(KDT,JSON.stringify([..._deletedTaskIds]));
+        }
+      }
       saveLocal();
       // 一括選択中は再描画しない（チェック状態が消えるため）
       var inBulk = _bulkSelected.size>0 || _bulkSelectedIssue.size>0 || _bulkSelectedPtask.size>0;
@@ -6935,7 +6952,10 @@ function pushTaskToGas(id){
   if(!_settings.gasUrl) return;
   var t=_tasks.find(function(x){return x.id===id;}); if(!t) return;
   var fd=new FormData(); fd.append('action','saveTask'); fd.append('task',JSON.stringify(t));
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(e){
+    console.warn('GAS POST失敗:', e);
+    typeof miniToast==='function' && miniToast('⚠️ GAS保存に失敗しました');
+  });
 }
 function deleteTaskFromGas(id){
   if(!_settings.gasUrl) return;
