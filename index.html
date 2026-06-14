@@ -3319,8 +3319,7 @@ function spawnNextRecurring(t){
     classroom:t.classroom||'',taskType:t.taskType||'',dueTime:t.dueTime||'',
     createdBy:t.createdBy,createdAt:now,updatedAt:now};
   _tasks.push(nt);
-  pushTaskToGas(nt.id);
-  if(nt.dueDate && shouldAutoExportToGcal(nt)) pushTaskToGcal(nt);
+  pushTaskToGas(nt.id); // 完全一本化(2026-06-14)：GカレはGAS側saveTaskが自動同期（pushTaskToGcal重複呼び出しを削除）
   toast('🔁 繰り返しタスクを自動作成しました（'+nd+'）');
 }
 function calcNextRecurDue(t){
@@ -3375,14 +3374,7 @@ function deleteCurrentTask(){
   var t=_tasks.find(function(x){return x.id===_curTaskId;});
   if(!t) return;
   if(!confirm('「'+t.title+'」を削除しますか？')) return;
-  // Gカレ連携済みのタスクならGカレのイベントも削除
-  if(t.gcalEventId && _settings.gasUrl){
-    var params=new URLSearchParams();
-    params.append('action','deleteCalendarEvent');
-    params.append('gcalEventId',t.gcalEventId);
-    if(t.gcalCalId) params.append('calendarId',t.gcalCalId);
-    fetch(_settings.gasUrl+'?'+params.toString(),{redirect:'follow'}).catch(function(){});
-  }
+  // 完全一本化(2026-06-14)：GカレはGAS側deleteTaskが自動削除する。
   var delId=_curTaskId;
   _tasks=_tasks.filter(function(x){return x.id!==delId;});
   _deletedTaskIds.add(delId);
@@ -3649,18 +3641,7 @@ function bulkDeleteTasks(){
   if(_bulkSelected.size===0) return;
   var count=_bulkSelected.size;
   if(!confirm(count+'件のタスクを削除しますか？この操作は元に戻せません。')) return;
-  // Gカレ連携済みのタスクを先に削除
-  if(_settings.gasUrl){
-    _tasks.forEach(function(t){
-      if(_bulkSelected.has(t.id) && t.gcalEventId){
-        var params=new URLSearchParams();
-        params.append('action','deleteCalendarEvent');
-        params.append('gcalEventId',t.gcalEventId);
-        if(t.gcalCalId) params.append('calendarId',t.gcalCalId);
-        fetch(_settings.gasUrl+'?'+params.toString(),{redirect:'follow'}).catch(function(){});
-      }
-    });
-  }
+  // 完全一本化(2026-06-14)：GカレはGAS側deleteTaskが自動削除する。
   _bulkSelected.forEach(function(id){ _deletedTaskIds.add(id); });
   localStorage.setItem(KDT, JSON.stringify([..._deletedTaskIds]));
   _tasks=_tasks.filter(function(t){ return !_bulkSelected.has(t.id); });
@@ -3973,15 +3954,7 @@ function quickDeleteTask(e,id){
 function confirmQuickDelete(id){
   var card=document.getElementById('tc-'+id);
   function doDelete(){
-    // Gカレ連携済みのタスクならGカレのイベントも削除
-    var t=_tasks.find(function(x){return x.id===id;});
-    if(t && t.gcalEventId && _settings.gasUrl){
-      var params=new URLSearchParams();
-      params.append('action','deleteCalendarEvent');
-      params.append('gcalEventId',t.gcalEventId);
-      if(t.gcalCalId) params.append('calendarId',t.gcalCalId);
-      fetch(_settings.gasUrl+'?'+params.toString(),{redirect:'follow'}).catch(function(){});
-    }
+    // 完全一本化(2026-06-14)：GカレはGAS側deleteTaskが自動削除する。
     _tasks=_tasks.filter(function(x){return x.id!==id;});
     _deletedTaskIds.add(id);
     localStorage.setItem(KDT, JSON.stringify([..._deletedTaskIds]));
@@ -4103,22 +4076,13 @@ function inlineEditDue(e,id){
   inp.addEventListener('change',function(){
     var prevDate=t.dueDate;
     t.dueDate=inp.value||''; t.updatedAt=new Date().toISOString();
-    // 期限日を消した場合は時刻もクリア＆Gカレイベントも削除
+    // 期限日を消した場合は時刻もクリア。GカレはGAS側saveTaskが条件外れと判定して自動削除する。
     if(!t.dueDate){
       t.dueTime='';
-      if(prevDate && t.gcalEventId && _settings.gasUrl){
-        var dpDel=new URLSearchParams();
-        dpDel.append('action','deleteCalendarEvent');
-        dpDel.append('gcalEventId',t.gcalEventId);
-        if(t.gcalCalId) dpDel.append('calendarId',t.gcalCalId);
-        fetch(_settings.gasUrl+'?'+dpDel.toString(),{redirect:'follow'}).catch(function(){});
-        t.gcalEventId=''; t.gcalCalId='';
-      }
     }
-    saveLocal(); pushTaskToGas(id);
+    saveLocal(); pushTaskToGas(id); // 完全一本化：Gカレ同期はGAS側saveTaskが担当
     inp.remove(); el.style.display='';
     renderAllViews();
-    if(t.dueDate && shouldAutoExportToGcal(t)) pushTaskToGcal(t);
   });
   inp.addEventListener('blur',function(){
     inp.remove(); el.style.display='';
@@ -4170,20 +4134,11 @@ function taskDueChange(e,id){
   var t=_tasks.find(function(x){return x.id===id;}); if(!t) return;
   var prevDate=t.dueDate;
   t.dueDate=e.target.value||''; t.updatedAt=new Date().toISOString();
-  // 期限日を消した場合は時刻もクリア＆Gカレイベントも削除
+  // 期限日を消した場合は時刻もクリア。GカレはGAS側saveTaskが条件外れと判定して自動削除する。
   if(!t.dueDate){
     t.dueTime='';
-    if(prevDate && t.gcalEventId && _settings.gasUrl){
-      var dpDel=new URLSearchParams();
-      dpDel.append('action','deleteCalendarEvent');
-      dpDel.append('gcalEventId',t.gcalEventId);
-      if(t.gcalCalId) dpDel.append('calendarId',t.gcalCalId);
-      fetch(_settings.gasUrl+'?'+dpDel.toString(),{redirect:'follow'}).catch(function(){});
-      t.gcalEventId=''; t.gcalCalId='';
-    }
   }
   saveLocal(); pushTaskToGas(id); renderAllViews();
-  if(t.dueDate && shouldAutoExportToGcal(t)) pushTaskToGcal(t);
   miniToast('保存済 ✓');
 }
 // ⏰ 時刻インライン編集（⏰アイコンまたは既存バッジをクリックで呼び出す）
@@ -4203,10 +4158,9 @@ function openTimeEdit(e,id){
   function commit(){
     t.dueTime=inp.value||'';
     t.updatedAt=new Date().toISOString();
-    saveLocal(); pushTaskToGas(id);
+    saveLocal(); pushTaskToGas(id); // 完全一本化：Gカレ同期はGAS側saveTaskが担当
     inp.remove(); el.style.display='';
     renderAllViews();
-    if(t.dueDate && shouldAutoExportToGcal(t)) pushTaskToGcal(t);
     if(t.dueTime) miniToast('時刻を設定しました ✓');
   }
   inp.addEventListener('change',commit);
@@ -4234,8 +4188,7 @@ function taskStatusChange(e,id){
   var card=document.getElementById('tc-'+id);
   var cardRect=card?card.getBoundingClientRect():null;
   saveLocal(); pushTaskToGas(id); renderAllViews(); renderBoard();
-  // ステータス変更（完了以外）でもGカレ更新（完了は記録として残す）
-  if(t.status!=='done' && shouldAutoExportToGcal(t) && t.dueDate) pushTaskToGcal(t);
+  // 完全一本化(2026-06-14)：Gカレ同期はGAS側saveTaskが担当（done含め全保存で同期。doneもイベントは残す）
   var newCard=document.getElementById('tc-'+id);
   if(newCard){
     if(t.status==='done'){
@@ -4261,8 +4214,7 @@ function taskCatChange(e,id){
   var t=_tasks.find(function(x){return x.id===id;}); if(!t) return;
   t.category=e.target.value||''; t.updatedAt=new Date().toISOString();
   if(t.category && _cats.indexOf(t.category)===-1) _cats.push(t.category);
-  saveLocal(); pushTaskToGas(id); renderAllViews();
-  if(t.dueDate && shouldAutoExportToGcal(t)) pushTaskToGcal(t);
+  saveLocal(); pushTaskToGas(id); renderAllViews(); // 完全一本化：Gカレ同期はGAS側saveTaskが担当
   miniToast('保存済 ✓');
 }
 function taskPriorityChange(e,id){
@@ -4282,8 +4234,7 @@ function taskClsChange(e,id){
   var sel=e.target;
   sel.className='task-inline-sel'+(t.classroom?' task-sel-cls':' sel-empty');
   saveLocal(); pushTaskToGas(id); miniToast('保存済 ✓');
-  // 教室変更でGカレのカレンダー・色が変わりうるため再登録
-  if(t.dueDate && shouldAutoExportToGcal(t)) pushTaskToGcal(t);
+  // 完全一本化(2026-06-14)：教室変更でカレンダーが変わってもGAS側saveTaskが旧イベント削除＋新規作成する
 }
 function taskTypeChange(e,id){
   e.stopPropagation();
@@ -6210,142 +6161,38 @@ function shouldAutoExportToGcal(task) {
 
 // ---- タスクをGカレにエクスポート（自動・期限日必須） ----
 function pushTaskToGcal(task) {
-  var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
-  if (!gasUrl || !task.dueDate) return;
-  var m = gcalExportMapping(task.classroom || '');
-  if (!m) return;
-
-  // dueDate を YYYY-MM-DD 形式に正規化（Dateオブジェクト文字列対策）
-  var rawDate = task.dueDate;
-  var normalizedDate = rawDate;
-  if (typeof rawDate === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-    var d = new Date(rawDate);
-    if (!isNaN(d.getTime())) {
-      normalizedDate = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    }
-  }
-
-  var params = new URLSearchParams();
-  params.append('action',     task.gcalEventId ? 'updateCalendarEvent' : 'createCalendarEvent');
-  params.append('calendarId', m.calId);
-  params.append('title',      task.title || '無題');
-  params.append('dueDate',    normalizedDate);
-  if (task.dueTime) params.append('dueTime', task.dueTime);
-  params.append('memo',       task.memo || '');
-  if (m.gcalColor) params.append('colorId', m.gcalColor);
-  if (task.gcalEventId) params.append('gcalEventId', task.gcalEventId);
-
-  fetch(gasUrl + '?' + params.toString(), { redirect: 'follow' })
-    .then(function(r){ return r.text(); })
-    .then(function(text){ var d = JSON.parse(text); return d; })
-    .then(function(d){
-      if (d.gcalEventId && !task.gcalEventId) {
-        task.gcalEventId = d.gcalEventId;
-        task.gcalCalId   = m.calId;
-        saveLocal();
-        pushTaskToGas(task.id); // gcalEventIdをGASにも同期
-      }
-    })
-    .catch(function(){});
+  // 完全一本化(2026-06-14)：Gカレ直接登録は廃止。GAS側saveTaskが自動同期する。
+  // ここではタスクをGASに保存するだけ（GASが条件判定してGカレ新規/更新/削除）。
+  if (task && task.id) pushTaskToGas(task.id);
 }
 
 // ---- 自動エクスポート＋トースト通知用 ----
 function pushTaskToGcalWithToast(task) {
-  var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
-  if (!gasUrl || !task.dueDate || !task.dueTime) return;
+  // 完全一本化(2026-06-14)：Gカレ直接登録は廃止。保存(pushTaskToGas)は呼び出し側が行う。
+  // この関数はトースト通知だけ担当（二重保存を避けるためpushTaskToGasは呼ばない）。
+  if (!task) return;
   var m = gcalExportMapping(task.classroom || '');
-  if (!m) return;
-  var rawDate = task.dueDate;
-  var normalizedDate = rawDate;
-  if (typeof rawDate === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-    var d = new Date(rawDate);
-    if (!isNaN(d.getTime())) {
-      normalizedDate = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    }
+  if (task.dueDate && task.dueTime && m) {
+    toast('📅 Gカレに登録しました');
   }
-  var params = new URLSearchParams();
-  params.append('action',     task.gcalEventId ? 'updateCalendarEvent' : 'createCalendarEvent');
-  params.append('calendarId', m.calId);
-  params.append('title',      task.title || '無題');
-  params.append('dueDate',    normalizedDate);
-  params.append('dueTime',    task.dueTime);
-  params.append('memo',       task.memo || '');
-  if (m.gcalColor) params.append('colorId', m.gcalColor);
-  if (task.gcalEventId) params.append('gcalEventId', task.gcalEventId);
-  fetch(gasUrl + '?' + params.toString(), { redirect: 'follow' })
-    .then(function(r){ return r.text(); })
-    .then(function(text){
-      var d = JSON.parse(text);
-      if (d.success || d.gcalEventId) {
-        if (d.gcalEventId && !task.gcalEventId) {
-          task.gcalEventId = d.gcalEventId;
-          task.gcalCalId   = m.calId;
-          saveLocal();
-          pushTaskToGas(task.id);
-          renderTaskView(_activeView||'all');
-        }
-        toast('📅 Gカレに登録しました');
-      } else {
-        toast('❌ ' + (d.error||'Gカレ登録失敗'));
-      }
-    })
-    .catch(function(){ toast('❌ GASへの通信に失敗しました'); });
 }
 
 // ---- 手動エクスポートボタン用 ----
 function pushTaskToGcalManual(taskId) {
+  // 完全一本化(2026-06-14)：手動ボタンも直接Gカレを叩かず、保存(pushTaskToGas)経由。
+  // GAS側saveTaskが条件判定してGカレに新規登録する。バリデーションは案内のため残す。
   var t = _tasks.find(function(x){ return x.id === taskId; });
   if (!t) return;
   if (!t.dueDate) { toast('❌ 期限日を設定してください'); return; }
   if (!t.dueTime) { toast('❌ 時刻を設定してください'); return; }
-
   var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
   if (!gasUrl) { toast('❌ GAS URLが設定されていません'); return; }
-
-  // エクスポートONのマッピングを探す（教室一致必須）
   if (!t.classroom) { toast('❌ 教室を設定してください'); return; }
   var m = gcalExportMapping(t.classroom);
   if (!m) { toast('❌ 設定タブで「' + t.classroom + '」の書出カレンダーを設定してください'); return; }
-
-  // dueDate を YYYY-MM-DD 形式に正規化
-  var rawDateM = t.dueDate;
-  var normalizedDateM = rawDateM;
-  if (typeof rawDateM === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(rawDateM)) {
-    var dM = new Date(rawDateM);
-    if (!isNaN(dM.getTime())) {
-      normalizedDateM = dM.getFullYear() + '-' + String(dM.getMonth()+1).padStart(2,'0') + '-' + String(dM.getDate()).padStart(2,'0');
-    }
-  }
-  var params = new URLSearchParams();
-  params.append('action',     t.gcalEventId ? 'updateCalendarEvent' : 'createCalendarEvent');
-  params.append('calendarId', m.calId);
-  params.append('title',      t.title || '無題');
-  params.append('dueDate',    normalizedDateM);
-  if (t.dueTime) params.append('dueTime', t.dueTime);
-  params.append('memo',       t.memo || '');
-  if (m.gcalColor) params.append('colorId', m.gcalColor);
-  if (t.gcalEventId) params.append('gcalEventId', t.gcalEventId);
-
-  fetch(gasUrl + '?' + params.toString(), { redirect: 'follow' })
-    .then(function(r){ return r.text(); })
-    .then(function(text){
-      var d = JSON.parse(text);
-      if (d.success) {
-        if (d.gcalEventId && !t.gcalEventId) {
-          t.gcalEventId = d.gcalEventId;
-          t.gcalCalId   = m.calId;
-          saveLocal();
-          pushTaskToGas(t.id); // gcalEventIdをGASにも同期
-          renderTaskView(_activeView||'all');
-        }
-        toast('📅 Gカレに登録しました');
-      } else {
-        toast('❌ ' + (d.error||'登録失敗'));
-      }
-    })
-    .catch(function(){ toast('❌ GASへの通信に失敗しました'); });
+  pushTaskToGas(t.id);
+  toast('📅 Gカレに登録しました');
 }
-
 
 function saveSettings(){
   var promptEl=document.getElementById('cfgAiPrompt');
@@ -6761,7 +6608,6 @@ function syncFromGas(){
         var _localTaskMap={};
         _tasks.forEach(function(t){ _localTaskMap[t.id]=t; });
         var mergedTasks=[];
-        var newTasksForGcal=[];  // Gカレ自動登録候補
         d.tasks.forEach(function(gt){
           // 削除済みタスクはGASから来ても復活させない
           if(_deletedTaskIds.has(gt.id)) return;
@@ -6780,10 +6626,8 @@ function syncFromGas(){
             mergedTasks.push(winner);
             delete _localTaskMap[gt.id];
           } else {
-            // GASから新規到着したタスク → Gカレ自動登録候補に追加
-            if(gt.dueDate && !gt.gcalEventId && gcalExportMapping(gt.classroom||'')) {
-              newTasksForGcal.push(gt);
-            }
+            // 完全一本化(2026-06-14)：同期時のフロントからのGカレ自動登録は廃止。
+            // Gカレ作成は保存時にGAS側saveTaskが行うため、ここでは候補に積まない（旧タスクへの重複イベント防止）。
             mergedTasks.push(gt);
           }
         });
@@ -6814,16 +6658,8 @@ function syncFromGas(){
           }
           if(!t.dueTime) t.dueTime='';
         });
-        // 新規タスクをGカレに自動登録（500ms遅延でsaveLocal後に実行）
-        if(newTasksForGcal.length>0){
-          setTimeout(function(){
-            newTasksForGcal.forEach(function(t){
-              // _tasks内の参照を取得（gcalEventId書き戻しのため）
-              var ref=_tasks.find(function(x){ return x.id===t.id; });
-              if(ref) pushTaskToGcal(ref);
-            });
-          }, 500);
-        }
+        // 完全一本化(2026-06-14)：同期時のGカレ自動登録ブロックは撤去。
+        // Gカレ作成・更新・削除は保存/削除時にGAS側(saveTask/deleteTask)が行う。
       }
       if(d.customViews) mergeCvsFromGas(d.customViews);
       if(d.projects){
@@ -6952,10 +6788,25 @@ function pushTaskToGas(id){
   if(!_settings.gasUrl) return;
   var t=_tasks.find(function(x){return x.id===id;}); if(!t) return;
   var fd=new FormData(); fd.append('action','saveTask'); fd.append('task',JSON.stringify(t));
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(e){
-    console.warn('GAS POST失敗:', e);
-    typeof miniToast==='function' && miniToast('⚠️ GAS保存に失敗しました');
-  });
+  // 完全一本化(2026-06-14 川上さん指示)：GカレはGAS側saveTaskが自動同期する。
+  // レスポンスのgcalEventId/gcalCalIdを_tasks・localStorageに書き戻して二重登録を防ぐ。
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d && d.success){
+        var cur=_tasks.find(function(x){return x.id===id;});
+        if(cur){
+          var changed=false;
+          if((cur.gcalEventId||'')!==(d.gcalEventId||'')){ cur.gcalEventId=d.gcalEventId||''; changed=true; }
+          if((cur.gcalCalId||'')!==(d.gcalCalId||'')){ cur.gcalCalId=d.gcalCalId||''; changed=true; }
+          if(changed){ saveLocal(); if(typeof renderAllViews==='function') renderAllViews(); }
+        }
+      }
+    })
+    .catch(function(e){
+      console.warn('GAS POST失敗:', e);
+      typeof miniToast==='function' && miniToast('⚠️ GAS保存に失敗しました');
+    });
 }
 function deleteTaskFromGas(id){
   if(!_settings.gasUrl) return;
