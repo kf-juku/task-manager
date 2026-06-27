@@ -4252,7 +4252,7 @@ function quickDeleteIssue(e,id){
     saveLocal(); renderBoard();
     if(_settings.gasUrl){
       var fd=new FormData(); fd.append('action','deleteIssue'); fd.append('id',id);
-      fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+      gasPostRetry(fd, '課題の削除');
     }
     toast('削除しました');
   }, 200);
@@ -4473,12 +4473,12 @@ function pushCvToGas(id){
   if(!_settings.gasUrl) return;
   var cv=_cvs.find(function(x){return x.id===id;}); if(!cv) return;
   var fd=new FormData(); fd.append('action','saveCustomView'); fd.append('cv',JSON.stringify(cv));
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, 'ビューの保存');
 }
 function deleteCvFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteCustomView'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, 'ビューの削除');
 }
 // ============================================================ テンプレート実行
 function openTemplateRunModal(){
@@ -6427,7 +6427,7 @@ function autoSaveMasterToGas(){
   var fd=new FormData();
   fd.append('action','saveMaster');
   fd.append('master',JSON.stringify({categories:_cats, assignees:_asgs, templates:_tpls}));
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, '設定（カテゴリ・担当者）の保存');
 }
 function cleanupOrphanCats(){
   var projTitles=_projects.map(function(p){return p.title;});
@@ -6745,7 +6745,10 @@ function syncFromGas(){
       var editingInline = !!document.querySelector('.task-inline-edit, .task-inline-input, .detail-inline-edit, .card-memo-rich[contenteditable="true"]')
         || !!(document.activeElement && document.activeElement.isContentEditable);
       if(!inBulk && !editingInline){ renderAllViews(); renderBoard(); renderProjectNav(); }
-      if(el) el.textContent='最終同期：'+new Date().toLocaleTimeString('ja-JP');
+      if(el){
+        if(_unsavedFailCount>0){ updateSyncStatusUnsaved(); } // 未保存があれば警告を優先表示
+        else { el.textContent='最終同期：'+new Date().toLocaleTimeString('ja-JP'); el.style.color='var(--text-muted)'; }
+      }
       // 同期ボタンを元に戻す
       _syncing = false;
       var syncBtns2=document.querySelectorAll('[onclick="syncFromGas()"]');
@@ -6759,16 +6762,70 @@ function syncFromGas(){
       toast('⚠️ 同期に失敗しました');
     });
 }
+// ===== GAS保存失敗の検知＋自動リトライ（2026-06-27 設計確定／詳細は機能仕様書「保存失敗時の挙動」）=====
+// 保存・削除系はこのヘルパー経由で送る。失敗したら2.5秒後に最大2回まで自動リトライし、
+// 最終失敗で未保存フラグを立てトースト＋同期ステータスに「未保存あり」を残す。
+// GAS側のsave/deleteはIDで上書き/1行削除＝冪等なので、リトライで重複しない。
+var _unsavedFailCount = 0; // 未送信(最終失敗)が残っている件数。再同期/保存成功で減らす
+function markUnsaved(){ _unsavedFailCount++; updateSyncStatusUnsaved(); }
+function clearUnsavedOne(){ if(_unsavedFailCount>0) _unsavedFailCount--; updateSyncStatusUnsaved(); }
+function clearUnsavedAll(){ _unsavedFailCount=0; updateSyncStatusUnsaved(); }
+function updateSyncStatusUnsaved(){
+  var el=document.getElementById('syncStatus'); if(!el) return;
+  if(_unsavedFailCount>0){
+    el.textContent='⚠ 保存できなかった変更があります（'+_unsavedFailCount+'件）。対象をもう一度操作して保存し直してください';
+    el.style.color='var(--danger,#d33)';
+  } else {
+    el.style.color='var(--text-muted)';
+    // 文言は同期処理側が「最終同期：...」で上書きする。ここでは未保存表示だけ消す
+  }
+}
+// fd:FormData label:失敗時トーストに出す対象名 opts:{onSuccess:function(d){}, _try:内部用, _failed:内部用}
+function gasPostRetry(fd, label, opts){
+  opts = opts || {};
+  if(!_settings.gasUrl) return;
+  var attempt = opts._try || 0;
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.success){
+        if(opts.onSuccess) try{ opts.onSuccess(d); }catch(e){ console.warn('onSuccess error', e); }
+        // 一度「最終失敗」として未保存計上した後にリトライ成功したら、その分を取り消す
+        if(opts._failed){ clearUnsavedOne(); toast('✅ 「'+label+'」を保存しました'); }
+        return;
+      }
+      // success=false（GAS側エラー）はリトライ対象（locked等は再送で解ける）
+      throw new Error(d && d.error ? d.error : 'GAS returned non-success');
+    })
+    .catch(function(e){
+      if(attempt < 2){ // 最大2回まで再送（計3回試行）
+        var fd2 = cloneFormData(fd);
+        setTimeout(function(){ gasPostRetry(fd2, label, {onSuccess:opts.onSuccess, _try:attempt+1, _failed:opts._failed}); }, 2500);
+      } else {
+        // 最終失敗：未保存として計上（まだ計上していなければ）してトースト＋同期ステータスに残す
+        if(!opts._failed){ markUnsaved(); opts._failed=true; }
+        console.warn('[GAS] 保存最終失敗:', label, e);
+        toast('⚠️ 「'+label+'」の保存に失敗しました。もう一度操作してください');
+      }
+    });
+}
+// FormDataはbody送信で消費されるためリトライ用に複製する
+function cloneFormData(fd){
+  var n=new FormData();
+  fd.forEach(function(v,k){ n.append(k,v); });
+  return n;
+}
+
 function pushIssueToGas(id){
   if(!_settings.gasUrl) return;
   var i=_issues.find(function(x){return x.id===id;}); if(!i) return;
   var fd=new FormData(); fd.append('action','saveIssue'); fd.append('issue',JSON.stringify(i));
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, '課題の保存');
 }
 function deleteIssueFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteIssue'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, '課題の削除');
 }
 function pushTaskToGas(id){
   if(!_settings.gasUrl) return;
@@ -6776,54 +6833,43 @@ function pushTaskToGas(id){
   var fd=new FormData(); fd.append('action','saveTask'); fd.append('task',JSON.stringify(t));
   // 完全一本化(2026-06-14 川上さん指示)：GカレはGAS側saveTaskが自動同期する。
   // レスポンスのgcalEventId/gcalCalIdを_tasks・localStorageに書き戻して二重登録を防ぐ。
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d && d.success){
-        var cur=_tasks.find(function(x){return x.id===id;});
-        if(cur){
-          var changed=false;
-          if((cur.gcalEventId||'')!==(d.gcalEventId||'')){ cur.gcalEventId=d.gcalEventId||''; changed=true; }
-          if((cur.gcalCalId||'')!==(d.gcalCalId||'')){ cur.gcalCalId=d.gcalCalId||''; changed=true; }
-          if(changed){ saveLocal(); if(typeof renderAllViews==='function') renderAllViews(); }
-        }
-      }
-    })
-    .catch(function(e){
-      console.warn('GAS POST失敗:', e);
-      typeof miniToast==='function' && miniToast('⚠️ GAS保存に失敗しました');
-    });
+  gasPostRetry(fd, 'タスクの保存', { onSuccess: function(d){
+    var cur=_tasks.find(function(x){return x.id===id;});
+    if(cur){
+      var changed=false;
+      if((cur.gcalEventId||'')!==(d.gcalEventId||'')){ cur.gcalEventId=d.gcalEventId||''; changed=true; }
+      if((cur.gcalCalId||'')!==(d.gcalCalId||'')){ cur.gcalCalId=d.gcalCalId||''; changed=true; }
+      if(changed){ saveLocal(); if(typeof renderAllViews==='function') renderAllViews(); }
+    }
+  }});
 }
 function deleteTaskFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteTask'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, 'タスクの削除');
 }
 
 function pushProjectToGas(id){
   if(!_settings.gasUrl) return;
   var p=_projects.find(function(x){return x.id===id;}); if(!p) return;
   var fd=new FormData(); fd.append('action','saveProject'); fd.append('project',JSON.stringify(p));
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, 'プロジェクトの保存');
 }
 function deleteProjectFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteProject'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'})
-    .then(function(r){return r.json();})
-    .then(function(d){ if(!d.success) console.warn('deleteProject GAS error:',d); })
-    .catch(function(e){ console.warn('deleteProject fetch error:',e); });
+  gasPostRetry(fd, 'プロジェクトの削除');
 }
 function pushPItemToGas(id){
   if(!_settings.gasUrl) return;
   var it=_pitems.find(function(x){return x.id===id;}); if(!it) return;
   var fd=new FormData(); fd.append('action','savePItem'); fd.append('item',JSON.stringify(it));
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, 'プロジェクトタスクの保存');
 }
 function deletePItemFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deletePItem'); fd.append('id',id);
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'}).catch(function(){});
+  gasPostRetry(fd, 'プロジェクトタスクの削除');
 }
 // ============================================================ Googleカレンダー
 function buildGcalUrl(t){
