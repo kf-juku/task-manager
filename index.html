@@ -759,6 +759,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
 }
 
 /* ===== ステータス演出 ===== */
+@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes statusDone {
   0%   { background: var(--green-light); transform: scale(1); }
   30%  { background: #bbf7d0; transform: scale(1.015); }
@@ -1254,7 +1255,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border);">Step 1 ｜ Gカレを読み込む</div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">GAS URLを設定済みの状態で「カレンダー一覧を取得」を押すと、GASが持っているGoogleカレンダーの一覧が表示されます。</div>
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
-            <button class="btn-secondary" onclick="fetchGcalList()">🔍 カレンダー一覧を取得</button>
+            <button class="btn-secondary" onclick="fetchGcalList(this)">🔍 カレンダー一覧を取得</button>
             <span id="gcalListStatus" style="font-size:12px;color:var(--text-muted);"></span>
           </div>
 
@@ -1279,8 +1280,8 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">※ 担当者固定：取込時の担当者を強制指定します。空欄は担当者なしで取り込まれます<br>※ Gカレ色：書出時にGカレ上で付ける色です。空欄はカレンダーのデフォルト色になります<br>※ 期限日がないタスクはGカレに書き出されません<br>※ 書出はタスクの「教室」フィールドに対応するカレンダーに送られます</div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-            <button class="btn-primary" onclick="saveGcalSettings()">💾 設定を保存（全員に反映）</button>
-            <button class="btn-secondary" onclick="importFromGcal()">📥 今すぐ取り込む</button>
+            <button class="btn-primary" onclick="saveGcalSettings(this)">💾 設定を保存（全員に反映）</button>
+            <button class="btn-secondary" onclick="importFromGcal(this)">📥 今すぐ取り込む</button>
           </div>
           <div id="gcalImportStatus" style="font-size:12px;color:var(--text-muted);margin-top:4px;"></div>
 
@@ -1933,21 +1934,7 @@ window.addEventListener('beforeunload',function(){
   issueMemoSave();
   // プロジェクトメモのローカル保存
   Object.keys(_projNoteSaveTimer||{}).forEach(function(id){ saveProjNote(id); });
-  // sendBeacon: タブクローズ時でもGASへのリクエストを途中切断させない
-  // 未送信の保留データがあればbeaconで送出
-  var gasUrl=_settings&&_settings.gasUrl;
-  if(gasUrl && navigator.sendBeacon){
-    try{
-      // 最新のローカルデータをbeaconで送信（GASが受け取れるFormDataとして送る）
-      var fd=new FormData();
-      fd.append('action','bulkSave');
-      fd.append('tasks',JSON.stringify(_tasks));
-      fd.append('issues',JSON.stringify(_issues));
-      fd.append('projects',JSON.stringify(_projects));
-      fd.append('pitems',JSON.stringify(_pitems));
-      navigator.sendBeacon(gasUrl, fd);
-    }catch(e){}
-  }
+  // 2026-07-09 撤去：旧bulkSave全件送信ビーコン。GAS側にbulkSaveハンドラが無くno-op（unknown action）だったうえ、全件送信コードが残ると将来ハンドラ実装時に会員管理型の全件上書き事故になる地雷のため削除。保存は各pushXxxToGasの差分保存＋gasPostRetryで担保済み。
 });
 window.onload=function(){
   // URLパラメータに gas= があればlocalStorageに保存（スタッフ共有URL用）
@@ -5874,9 +5861,10 @@ function loadGcalSettings(callback) {
 }
 
 // ---- 設定保存（GASへPOST） ----
-function saveGcalSettings() {
+function saveGcalSettings(btn) {
   var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
   if (!gasUrl) { toast('❌ GAS URLが設定されていません'); return; }
+  var _restore = btnBusy(btn);
 
   // テーブルから現在の設定を読む（教室軸）
   _gcalSettings.daysAhead = parseInt((document.getElementById('cfgGcalDays')||{}).value||'30',10)||30;
@@ -5907,14 +5895,25 @@ function saveGcalSettings() {
     } else {
       toast('❌ 保存失敗: ' + (d.error||'不明'));
     }
+    if (_restore) _restore();
   })
-  .catch(function(){ toast('❌ GASへの通信に失敗しました'); });
+  .catch(function(){ toast('❌ GASへの通信に失敗しました'); if (_restore) _restore(); });
 }
 
 // ---- カレンダー一覧を取得してテーブルを描画 ----
-function fetchGcalList() {
+// 2026-07-09 追加：非同期ボタンの即時ローディング（ui-stand's 2493節「押した瞬間に無効化＋スピナー」）。btnを渡すと復帰関数を返す。
+function btnBusy(btn){
+  if(!btn) return null;
+  var orig=btn.innerHTML; btn.disabled=true;
+  var sibs=[]; var wrap=btn.parentNode;
+  if(wrap&&wrap.querySelectorAll){ wrap.querySelectorAll('button').forEach(function(b){ if(b!==btn){ b.disabled=true; b.style.opacity='0.6'; sibs.push(b); } }); }
+  btn.innerHTML='<span style="display:inline-block;width:12px;height:12px;border:2px solid #cbd5e1;border-top-color:#334155;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:-2px;margin-right:5px;"></span>処理中...';
+  return function(){ btn.disabled=false; btn.innerHTML=orig; sibs.forEach(function(b){ b.disabled=false; b.style.opacity=''; }); };
+}
+function fetchGcalList(btn) {
   var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
   if (!gasUrl) { toast('❌ GAS URLが設定されていません'); return; }
+  var _restore = btnBusy(btn);
   var statusEl = document.getElementById('gcalListStatus');
   if (statusEl) statusEl.textContent = '取得中...';
 
@@ -5925,9 +5924,11 @@ function fetchGcalList() {
       _gcalCalendars = d.calendars || [];
       if (statusEl) statusEl.textContent = '✅ ' + _gcalCalendars.length + '件取得';
       renderGcalMappingTable();
+      if (_restore) _restore();
     })
     .catch(function(err){
       if (statusEl) statusEl.textContent = '❌ 取得失敗: ' + err;
+      if (_restore) _restore();
     });
 }
 
@@ -6011,7 +6012,7 @@ function renderGcalSettings() {
 }
 
 // ---- インポート（Gカレ → タスク） ----
-function importFromGcal() {
+function importFromGcal(btn) {
   var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
   if (!gasUrl) { toast('❌ GAS URLが設定されていません'); return; }
   var statusEl = document.getElementById('gcalImportStatus');
@@ -6023,6 +6024,7 @@ function importFromGcal() {
     if (statusEl) statusEl.textContent = '取り込み対象のカレンダーが設定されていません';
     return;
   }
+  var _restore = btnBusy(btn);
 
   var days = parseInt((document.getElementById('cfgGcalDays')||{}).value||'30',10)||30;
   var added = 0, skipped = 0;
@@ -6069,8 +6071,10 @@ function importFromGcal() {
     if (skipped > 0) msg += '（' + skipped + '件重複スキップ）';
     if (statusEl) statusEl.textContent = msg;
     toast(msg);
+    if (_restore) _restore();
   }).catch(function(err){
     if (statusEl) statusEl.textContent = '❌ 取り込み失敗: ' + err;
+    if (_restore) _restore();
   });
 }
 
