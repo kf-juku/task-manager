@@ -747,6 +747,17 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
 .rich-editor h3 { font-size: 13px; font-weight: 700; margin: 6px 0 3px; color: var(--text); }
 .rich-editor hr { border: none; border-top: 2px solid var(--border); margin: 10px 0; }
 .rich-editor img { max-width: 100%; border-radius: 6px; margin: 4px 0; display: block; }
+/* ===== 貼り付け画像 リサイズ/削除UI ===== */
+.card-memo-rich[contenteditable="true"] img, .detail-memo-rich[contenteditable="true"] img, .rich-editor[contenteditable="true"] img { cursor: pointer; }
+#imgResizeBox { position: fixed; z-index: 10000; border: 1.5px solid var(--blue, #6366f1); box-sizing: border-box; display: none; pointer-events: none; box-shadow: 0 0 0 1px rgba(255,255,255,0.6); }
+#imgResizeBox.show { display: block; }
+#imgResizeBox .img-rz-h { position: absolute; width: 16px; height: 16px; background: #fff; border: 2px solid var(--blue, #6366f1); border-radius: 3px; box-sizing: border-box; pointer-events: auto; touch-action: none; }
+#imgResizeBox .img-rz-h.nw { top: -9px; left: -9px; cursor: nwse-resize; }
+#imgResizeBox .img-rz-h.ne { top: -9px; right: -9px; cursor: nesw-resize; }
+#imgResizeBox .img-rz-h.sw { bottom: -9px; left: -9px; cursor: nesw-resize; }
+#imgResizeBox .img-rz-h.se { bottom: -9px; right: -9px; cursor: nwse-resize; }
+#imgResizeBox .img-rz-del { position: absolute; top: -34px; left: 50%; transform: translateX(-50%); background: #e53e3e; color: #fff; font-size: 12px; font-weight: 700; line-height: 1; padding: 6px 10px; border-radius: 6px; white-space: nowrap; cursor: pointer; pointer-events: auto; touch-action: none; box-shadow: 0 2px 6px rgba(0,0,0,0.25); user-select: none; }
+#imgResizeBox .img-rz-del:hover { background: #c53030; }
 .rich-toggle-head { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 5px; font-weight: 700; font-size: 13px; padding: 2px 0; }
 .rich-toggle-head::before { content: '▶'; font-size: 10px; transition: transform 0.2s; display: inline-block; color: var(--text-light); }
 .rich-toggle-head.open::before { transform: rotate(90deg); }
@@ -4010,7 +4021,7 @@ function inlineEditMemo(e,id){
     wrap.appendChild(cbtn); wrap.appendChild(dd); tb.appendChild(wrap);
   })();
   var editor=el;
-  editor.className='card-memo-rich'; editor.contentEditable='true'; editor.innerHTML=t.memo||''; editor.focus();
+  editor.className='card-memo-rich'; editor.contentEditable='true'; editor.setAttribute('data-imgsave','task:'+id); editor.innerHTML=t.memo||''; editor.focus();
   var cardEl=el.closest('.task-card')||el.parentNode;
   cardEl.style.position='relative';
   var rect=el.getBoundingClientRect(); var cardRect=cardEl.getBoundingClientRect();
@@ -5266,6 +5277,7 @@ function issueCardInlineEditMemo(e,id){
   var editor=document.createElement('div');
   editor.className='card-memo-rich';
   editor.contentEditable='true';
+  editor.setAttribute('data-imgsave','issue:'+id);
   editor.innerHTML=i.memo||'';
 
   // ツールバーの位置決め（カードの位置に合わせる）
@@ -5408,6 +5420,106 @@ function cycleIssueStatus(e,id){
   }
 }
 function openLightboxData(img){ openLightbox(img.src); }
+// ===== 貼り付け画像 リサイズ/削除 共通システム =====
+(function(){
+  var box=null, target=null, editorEl=null, dragging=false, mode='', imgLeft=0, imgRight=0;
+  function ensureBox(){
+    if(box) return box;
+    box=document.createElement('div');
+    box.id='imgResizeBox';
+    box.innerHTML='<div class="img-rz-h nw" data-c="nw"></div><div class="img-rz-h ne" data-c="ne"></div><div class="img-rz-h sw" data-c="sw"></div><div class="img-rz-h se" data-c="se"></div><div class="img-rz-del" title="この画像を削除">🗑 削除</div>';
+    document.body.appendChild(box);
+    box.querySelectorAll('.img-rz-h').forEach(function(h){
+      var c=h.getAttribute('data-c');
+      h.addEventListener('mousedown',function(ev){ startDrag(ev,c); });
+      h.addEventListener('touchstart',function(ev){ startDrag(ev,c); },{passive:false});
+    });
+    var del=box.querySelector('.img-rz-del');
+    del.addEventListener('mousedown',function(ev){ ev.preventDefault(); ev.stopPropagation(); doDelete(); });
+    del.addEventListener('touchstart',function(ev){ ev.preventDefault(); ev.stopPropagation(); doDelete(); },{passive:false});
+    return box;
+  }
+  function pt(ev){ if(ev.touches&&ev.touches.length) return {x:ev.touches[0].clientX,y:ev.touches[0].clientY}; if(ev.changedTouches&&ev.changedTouches.length) return {x:ev.changedTouches[0].clientX,y:ev.changedTouches[0].clientY}; return {x:ev.clientX,y:ev.clientY}; }
+  function showFor(img){
+    target=img;
+    editorEl=img.closest('.card-memo-rich,.detail-memo-rich,.rich-editor');
+    ensureBox();
+    reposition();
+    box.classList.add('show');
+  }
+  function reposition(){
+    if(!target||!box) return;
+    if(!document.body.contains(target)){ hide(); return; }
+    var r=target.getBoundingClientRect();
+    box.style.left=r.left+'px'; box.style.top=r.top+'px';
+    box.style.width=r.width+'px'; box.style.height=r.height+'px';
+  }
+  function hide(){ if(box) box.classList.remove('show'); target=null; editorEl=null; }
+  function startDrag(ev,corner){
+    if(!target) return;
+    ev.preventDefault(); ev.stopPropagation();
+    dragging=true; mode=corner;
+    var r=target.getBoundingClientRect();
+    imgLeft=r.left; imgRight=r.right;
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',onUp);
+    document.addEventListener('touchmove',onMove,{passive:false});
+    document.addEventListener('touchend',onUp);
+    document.addEventListener('touchcancel',onUp);
+  }
+  function onMove(ev){
+    if(!dragging||!target) return;
+    ev.preventDefault();
+    var p=pt(ev), w;
+    if(mode==='se'||mode==='ne'){ w=p.x-imgLeft; } else { w=imgRight-p.x; }
+    if(w<40) w=40;
+    var maxW=editorEl?editorEl.clientWidth:(window.innerWidth-40);
+    if(maxW&&w>maxW) w=maxW;
+    target.style.width=Math.round(w)+'px';
+    target.style.height='auto';
+    target.style.maxWidth='100%';
+    reposition();
+  }
+  function onUp(){
+    if(!dragging) return;
+    dragging=false;
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onUp);
+    document.removeEventListener('touchmove',onMove);
+    document.removeEventListener('touchend',onUp);
+    document.removeEventListener('touchcancel',onUp);
+    saveEditor(editorEl);
+    reposition();
+  }
+  function doDelete(){
+    if(!target) return;
+    var ed=editorEl, tg=target;
+    hide();
+    if(tg.parentNode) tg.parentNode.removeChild(tg);
+    saveEditor(ed);
+  }
+  function saveEditor(ed){
+    if(!ed) return;
+    try{
+      if(ed.id==='detailMemoText'){ if(typeof issueMemoSave==='function') issueMemoSave(); return; }
+      if(ed.id&&ed.id.indexOf('pnote-')===0){ if(typeof saveProjNote==='function') saveProjNote(ed.id.slice(6)); return; }
+      var key=ed.getAttribute('data-imgsave'); if(!key) return;
+      var ci=key.indexOf(':'); var kind=key.slice(0,ci), sid=key.slice(ci+1);
+      if(kind==='task'){ var t=_tasks.find(function(x){return x.id===sid;}); if(t){ t.memo=ed.innerHTML; t.updatedAt=new Date().toISOString(); saveLocal(); if(typeof pushTaskToGas==='function') pushTaskToGas(sid); } }
+      else if(kind==='issue'){ var it=_issues.find(function(x){return x.id===sid;}); if(it){ it.memo=ed.innerHTML; it.updatedAt=new Date().toISOString(); saveLocal(); if(typeof pushIssueToGas==='function') pushIssueToGas(sid); } }
+    }catch(err){ console.error('img resize save error',err); }
+  }
+  document.addEventListener('click',function(ev){
+    var t=ev.target;
+    if(t&&t.tagName==='IMG'){
+      var ed=t.closest('.card-memo-rich,.detail-memo-rich,.rich-editor');
+      if(ed&&ed.isContentEditable){ ev.stopPropagation(); showFor(t); return; }
+    }
+    if(box&&!box.contains(t)) hide();
+  },true);
+  window.addEventListener('scroll',function(){ if(target) reposition(); },true);
+  window.addEventListener('resize',function(){ if(target) reposition(); });
+})();
 function openLightbox(url){
   var lb=document.getElementById('photoLightbox');
   var img=document.getElementById('photoLightboxImg');
