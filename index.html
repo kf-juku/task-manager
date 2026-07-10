@@ -4022,6 +4022,7 @@ function inlineEditMemo(e,id){
   })();
   var editor=el;
   editor.className='card-memo-rich'; editor.contentEditable='true'; editor.setAttribute('data-imgsave','task:'+id); editor.innerHTML=t.memo||''; editor.focus();
+  if(typeof histSeed==='function'){ histSeed(editor); attachRichHistory(editor); }
   var cardEl=el.closest('.task-card')||el.parentNode;
   cardEl.style.position='relative';
   var rect=el.getBoundingClientRect(); var cardRect=cardEl.getBoundingClientRect();
@@ -4031,7 +4032,7 @@ function inlineEditMemo(e,id){
     var items=ev.clipboardData&&ev.clipboardData.items; if(!items) return;
     for(var i=0;i<items.length;i++){
       if(items[i].type.indexOf('image')!==-1){ ev.preventDefault(); var blob=items[i].getAsFile(); var reader=new FileReader();
-        reader.onload=function(re){ document.execCommand('insertHTML',false,'<img src="'+re.target.result+'">'); }; reader.readAsDataURL(blob); break; }
+        reader.onload=function(re){ document.execCommand('insertHTML',false,'<img src="'+re.target.result+'">'); if(typeof histSnapshot==='function') histSnapshot(editor); }; reader.readAsDataURL(blob); break; }
     }
   });
   var _tbClicking=false;
@@ -4842,6 +4843,7 @@ function openDetail(id){
   memoEl.innerHTML=i.memo||'';
   memoEl.className='detail-memo-rich';
   rebindToggle_issue();
+  if(typeof histSeed==='function'){ histSeed(memoEl); attachRichHistory(memoEl); }
   document.getElementById('detailQSel').value=i.quadrant;
   var sel=document.getElementById('convertActionSel');
   if(sel){ sel.style.display=(i.status==='open')?'':'none'; sel.value=''; }
@@ -5070,6 +5072,12 @@ function issueMemoExec(cmd,arg){
   // 保存はblur時のみ（即保存するとUndoスタックがリセットされるため）
 }
 function rteExecOnEl(el, cmd){
+  if(typeof histSnapshot==='function') histSnapshot(el);
+  var __r=rteExecOnEl_impl.apply(this, arguments);
+  if(typeof histSnapshot==='function') histSnapshot(el);
+  return __r;
+}
+function rteExecOnEl_impl(el, cmd){
   var sel=window.getSelection();
   var range=sel&&sel.rangeCount>0?sel.getRangeAt(0):null;
   if(cmd==='bold'){
@@ -5158,6 +5166,7 @@ function issueMemoOnPaste(e){
         var range=sel&&sel.rangeCount>0?sel.getRangeAt(0):null;
         if(range){range.deleteContents();range.insertNode(img);}
         else{el.appendChild(img);}
+        if(typeof histSnapshot==='function') histSnapshot(el);
         issueMemoAutoSave();
       };
       reader.readAsDataURL(file); return;
@@ -5291,6 +5300,7 @@ function issueCardInlineEditMemo(e,id){
   el.replaceWith(editor);
   document.body.appendChild(tb);
   editor.focus();
+  if(typeof histSeed==='function'){ histSeed(editor); attachRichHistory(editor); }
 
   // rebindToggle
   editor.querySelectorAll('.rich-toggle-head').forEach(function(th){
@@ -5315,6 +5325,7 @@ function issueCardInlineEditMemo(e,id){
           var range=sel&&sel.rangeCount>0?sel.getRangeAt(0):null;
           if(range){range.deleteContents();range.insertNode(img);}
           else{editor.appendChild(img);}
+          if(typeof histSnapshot==='function') histSnapshot(editor);
           cardMemoSave(editor,i,id);
         };
         reader.readAsDataURL(file); return;
@@ -5420,6 +5431,43 @@ function cycleIssueStatus(e,id){
   }
 }
 function openLightboxData(img){ openLightbox(img.src); }
+// ===== リッチエディタ 共通保存 =====
+function richEditorSave(ed){
+  if(!ed) return;
+  try{
+    if(ed.id==='detailMemoText'){ if(typeof issueMemoSave==='function') issueMemoSave(); return; }
+    if(ed.id&&ed.id.indexOf('pnote-')===0){ if(typeof saveProjNote==='function') saveProjNote(ed.id.slice(6)); return; }
+    var key=ed.getAttribute&&ed.getAttribute('data-imgsave'); if(!key) return;
+    var ci=key.indexOf(':'); var kind=key.slice(0,ci), sid=key.slice(ci+1);
+    if(kind==='task'){ var t=_tasks.find(function(x){return x.id===sid;}); if(t){ t.memo=ed.innerHTML; t.updatedAt=new Date().toISOString(); saveLocal(); if(typeof pushTaskToGas==='function') pushTaskToGas(sid); } }
+    else if(kind==='issue'){ var it=_issues.find(function(x){return x.id===sid;}); if(it){ it.memo=ed.innerHTML; it.updatedAt=new Date().toISOString(); saveLocal(); if(typeof pushIssueToGas==='function') pushIssueToGas(sid); } }
+  }catch(err){ console.error('richEditorSave error',err); }
+}
+// ===== リッチエディタ 専用Undo/Redo（入力・見出し・区切り線・トグル・画像挿入/リサイズ/削除を一元管理）=====
+var _richHist=new WeakMap();
+function _histGet(ed){ if(!ed) return null; var h=_richHist.get(ed); if(!h){ h={stack:[ed.innerHTML],idx:0,timer:null}; _richHist.set(ed,h); } return h; }
+function histSeed(ed){ if(!ed) return; var h=_histGet(ed); h.stack=[ed.innerHTML]; h.idx=0; if(h.timer){ clearTimeout(h.timer); h.timer=null; } }
+function histSnapshot(ed){ if(!ed) return; var h=_histGet(ed); if(h.timer){ clearTimeout(h.timer); h.timer=null; } var cur=ed.innerHTML; if(h.stack[h.idx]===cur) return; h.stack=h.stack.slice(0,h.idx+1); h.stack.push(cur); if(h.stack.length>60) h.stack.shift(); h.idx=h.stack.length-1; }
+function histScheduleSnapshot(ed){ if(!ed) return; var h=_histGet(ed); if(h.timer) clearTimeout(h.timer); h.timer=setTimeout(function(){ h.timer=null; histSnapshot(ed); },350); }
+function _histRestore(ed){
+  var h=_histGet(ed); ed.innerHTML=h.stack[h.idx];
+  if(typeof window.__hideImgResize==='function') window.__hideImgResize();
+  ed.querySelectorAll('.rich-toggle-head').forEach(function(th){ th.onclick=function(){ if(document.getSelection().toString()!=='') return; var body=th.nextElementSibling; if(body){ body.classList.toggle('hidden'); th.classList.toggle('open'); } }; });
+  try{ ed.focus(); var r=document.createRange(); r.selectNodeContents(ed); r.collapse(false); var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }catch(e){}
+  if(typeof richEditorSave==='function') richEditorSave(ed);
+}
+function histUndo(ed){ var h=_histGet(ed); if(h.timer){ clearTimeout(h.timer); h.timer=null; } if(h.stack[h.idx]!==ed.innerHTML) histSnapshot(ed); if(h.idx>0){ h.idx--; _histRestore(ed); return true; } return false; }
+function histRedo(ed){ var h=_histGet(ed); if(h.timer){ clearTimeout(h.timer); h.timer=null; } if(h.idx<h.stack.length-1){ h.idx++; _histRestore(ed); return true; } return false; }
+function attachRichHistory(ed){
+  if(!ed||ed.__histBound) return; ed.__histBound=true; _histGet(ed);
+  ed.addEventListener('input',function(){ histScheduleSnapshot(ed); });
+  ed.addEventListener('keydown',function(e){
+    if(!(e.ctrlKey||e.metaKey)) return;
+    var k=(e.key||'').toLowerCase();
+    if(k==='z'&&!e.shiftKey){ e.preventDefault(); histUndo(ed); }
+    else if(k==='y'||(k==='z'&&e.shiftKey)){ e.preventDefault(); histRedo(ed); }
+  });
+}
 // ===== 貼り付け画像 リサイズ/削除 共通システム =====
 (function(){
   var box=null, target=null, editorEl=null, dragging=false, mode='', imgLeft=0, imgRight=0;
@@ -5455,8 +5503,10 @@ function openLightboxData(img){ openLightbox(img.src); }
     box.style.width=r.width+'px'; box.style.height=r.height+'px';
   }
   function hide(){ if(box) box.classList.remove('show'); target=null; editorEl=null; }
+  window.__hideImgResize=hide;
   function startDrag(ev,corner){
     if(!target) return;
+    if(typeof histSnapshot==='function') histSnapshot(editorEl);
     ev.preventDefault(); ev.stopPropagation();
     dragging=true; mode=corner;
     var r=target.getBoundingClientRect();
@@ -5489,26 +5539,19 @@ function openLightboxData(img){ openLightbox(img.src); }
     document.removeEventListener('touchend',onUp);
     document.removeEventListener('touchcancel',onUp);
     saveEditor(editorEl);
+    if(typeof histSnapshot==='function') histSnapshot(editorEl);
     reposition();
   }
   function doDelete(){
     if(!target) return;
     var ed=editorEl, tg=target;
+    if(typeof histSnapshot==='function') histSnapshot(ed);
     hide();
     if(tg.parentNode) tg.parentNode.removeChild(tg);
     saveEditor(ed);
+    if(typeof histSnapshot==='function') histSnapshot(ed);
   }
-  function saveEditor(ed){
-    if(!ed) return;
-    try{
-      if(ed.id==='detailMemoText'){ if(typeof issueMemoSave==='function') issueMemoSave(); return; }
-      if(ed.id&&ed.id.indexOf('pnote-')===0){ if(typeof saveProjNote==='function') saveProjNote(ed.id.slice(6)); return; }
-      var key=ed.getAttribute('data-imgsave'); if(!key) return;
-      var ci=key.indexOf(':'); var kind=key.slice(0,ci), sid=key.slice(ci+1);
-      if(kind==='task'){ var t=_tasks.find(function(x){return x.id===sid;}); if(t){ t.memo=ed.innerHTML; t.updatedAt=new Date().toISOString(); saveLocal(); if(typeof pushTaskToGas==='function') pushTaskToGas(sid); } }
-      else if(kind==='issue'){ var it=_issues.find(function(x){return x.id===sid;}); if(it){ it.memo=ed.innerHTML; it.updatedAt=new Date().toISOString(); saveLocal(); if(typeof pushIssueToGas==='function') pushIssueToGas(sid); } }
-    }catch(err){ console.error('img resize save error',err); }
-  }
+  function saveEditor(ed){ if(typeof richEditorSave==='function') richEditorSave(ed); }
   document.addEventListener('click',function(ev){
     var t=ev.target;
     if(t&&t.tagName==='IMG'){
@@ -7594,6 +7637,7 @@ function renderProjectDetail(id){
     });
     noteEl.addEventListener('blur',function(){ saveProjNote(id); });
     rebindToggle(id);
+    if(typeof histSeed==='function'){ histSeed(noteEl); attachRichHistory(noteEl); }
   }
   // 担当者セレクトに myName をセット（_asgs に含まれない場合でも動くよう JS で直接指定）
   var asgSel=document.getElementById('ptask-assignee-'+id);
@@ -8083,6 +8127,13 @@ function saveProjNote(projId){
 }
 // ===== リッチエディタ =====
 function rteExec(projId, cmd){
+  var __el=document.getElementById('pnote-'+projId);
+  if(__el && typeof histSnapshot==='function') histSnapshot(__el);
+  var __r=rteExec_impl.apply(this, arguments);
+  if(__el && typeof histSnapshot==='function') histSnapshot(__el);
+  return __r;
+}
+function rteExec_impl(projId, cmd){
   var el=document.getElementById('pnote-'+projId); if(!el) return;
   el.focus();
   var sel=window.getSelection();
@@ -8179,6 +8230,7 @@ function rtePaste(e, projId){
         var range=sel&&sel.rangeCount>0?sel.getRangeAt(0):null;
         if(range){ range.deleteContents(); range.insertNode(img); }
         else { el.appendChild(img); }
+        if(typeof histSnapshot==='function') histSnapshot(el);
         autosaveProjNote(projId);
       }; reader.readAsDataURL(f); })(file);
       return;
