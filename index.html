@@ -138,6 +138,8 @@ body { font-family: 'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif; backg
 .task-date-block.tdb-overdue .tdb-meta { color: #dc2626; }
 .task-date-block.tdb-today .tdb-date { color: var(--crimson); }
 .task-date-block.tdb-today .tdb-meta { color: var(--crimson); }
+.task-date-block.tdb-overdue .tdb-year { color: #dc2626; }
+.task-date-block.tdb-today .tdb-year { color: var(--crimson); }
 .task-date-block.tdb-empty .tdb-date { font-size: 18px; color: #d1d5db; }
 .task-date-input-wrap { display: none; }
 .task-date-input-wrap.show { display: block; }
@@ -1898,7 +1900,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
 
 <script>
 'use strict';
-var KI='tm_issues', KT='tm_tasks', KC='tm_categories', KA='tm_assignees', KS='tm_settings', KCV='tm_customviews', KTPL='tm_templates', KHCV='tm_hidden_cvs', KPR='tm_projects', KPIT='tm_pitems', KDT='tm_deleted_tasks';
+var KI='tm_issues', KT='tm_tasks', KC='tm_categories', KA='tm_assignees', KS='tm_settings', KCV='tm_customviews', KTPL='tm_templates', KHCV='tm_hidden_cvs', KPR='tm_projects', KPIT='tm_pitems', KDT='tm_deleted_tasks', KDI='tm_deleted_issues';
 var DEFAULT_CATS = ['教室業務','塾運営','面談約束','CA運営','システム','会計','その他'];
 var DEFAULT_ASGS = ['川上'];
 var DEFAULT_TPLS = [
@@ -1920,6 +1922,7 @@ var DEFAULT_TPLS = [
 ];
 var _issues=[], _tasks=[], _cats=[], _asgs=[], _settings={gasUrl:'',myName:''}, _cvs=[], _tpls=[], _hiddenCvs=[];
 var _deletedTaskIds=new Set(); // 削除済みタスクID（sync時に復活防止）
+var _deletedIssueIds=new Set(); // 削除済み課題ID（sync時に復活防止）
 var _quickAddBusy=false; // クイック追加連打防止
 var _saveTaskBusy=false; // タスク保存ボタン連打防止
 var _bulkSelected=new Set(); // 一括操作で選択中のタスクID
@@ -1985,6 +1988,7 @@ function loadLocal(){
   _pitems    = sj(localStorage.getItem(KPIT),[]);
   _viewSorts = sj(localStorage.getItem(KSORT),{});
   _deletedTaskIds = new Set(sj(localStorage.getItem(KDT),[]));
+  _deletedIssueIds = new Set(sj(localStorage.getItem(KDI),[]));
   // ※ 孤立カテゴリのクリーンアップは自動では実行しない。
   // 設定画面の🧹整理ボタン（cleanupOrphanCats）を手動で押したときのみ実行される。
   // 起動時に自動削除すると意図しないカテゴリ消失が起きるリスクがある。
@@ -2221,7 +2225,7 @@ function renderTaskView(vid){
   var search=(document.getElementById('search-'+vid)||{}).value||'';
   var sf=_viewFilters[vid]||{status:'all'};
   var filter=vid==='mine'?function(t){
-    return t.assignee===(_settings.myName||'') && t.status!=='done';
+    return t.assignee===(_settings.myName||'');
   }:vid.startsWith('cv_')?function(t){
     var cv=_cvs.find(function(c){return c.id===vid;});
     return cv?matchCv(t,cv):true;
@@ -2237,7 +2241,7 @@ function renderTaskView(vid){
 
   var active=allTasks.filter(function(t){
     if(!filter(t)) return false;
-    if(t.isPrivate&&!_settings.showPrivate) return false;
+    if(t.isPrivate&&_settings.showPrivate===false) return false;
     if(t.status==='done') return false;
     var over=t.dueDate&&toIsoDate(t.dueDate)<today;
     if(statusFilter==='todo'   &&t.status!=='todo')  return false;
@@ -2248,6 +2252,7 @@ function renderTaskView(vid){
   });
   var done=allTasks.filter(function(t){
     if(!filter(t)) return false;
+    if(t.isPrivate&&_settings.showPrivate===false) return false;
     if(t.status!=='done') return false;
     if(search&&t.title.indexOf(search)<0&&(t.memo||'').indexOf(search)<0) return false;
     return true;
@@ -2362,7 +2367,7 @@ function renderTaskGroup(name,tasks,vid){
   var safeId=(vid||'all')+'_cat_'+name.split('').reduce(function(h,c){return (((h<<5)-h)+c.charCodeAt(0))|0;},0).toString(36).replace('-','m');
   var showQadd=(vid==='all'||vid==='mine');
   var qaddBtn=showQadd
-    ? '<button class="task-group-qadd-btn" title="このカテゴリにタスクを追加" onclick="toggleGroupQadd(event,\''+safeId+'\',\''+esc(name)+'\',\''+esc(vid||'')+'\')">＋</button>'
+    ? '<button class="task-group-qadd-btn" title="このカテゴリにタスクを追加" onclick="toggleGroupQadd(event,\''+safeId+'\',\''+escJs(name)+'\',\''+esc(vid||'')+'\')">＋</button>'
     : '';
   var qaddRow=showQadd
     ? '<div class="task-group-qadd-row" id="qadd-row-'+safeId+'">'
@@ -2390,13 +2395,13 @@ function renderTaskGroup(name,tasks,vid){
       +'</div>'
     : '';
   return '<div class="task-group" id="tg-'+safeId+'" data-group="'+esc(name)+'"'
-    +' ondragstart="groupDragStart(event,\''+esc(name)+'\')" '
+    +' ondragstart="groupDragStart(event,\''+escJs(name)+'\')" '
     +' ondragover="groupDragOver(event)"'
     +' ondragleave="groupDragLeave(event)"'
-    +' ondrop="groupDrop(event,\''+esc(name)+'\')" '
+    +' ondrop="groupDrop(event,\''+escJs(name)+'\')" '
     +' ondragend="groupDragEnd(event)">'
     +'<div class="task-group-header" onclick="var b=this.closest(&apos;.task-group&apos;).querySelector(&apos;.task-group-body&apos;);b.classList.toggle(&apos;collapsed&apos;);this.querySelector(&apos;.task-group-toggle&apos;).textContent=b.classList.contains(&apos;collapsed&apos;)?&apos;▶&apos;:&apos;▼&apos;;">'
-    +'<input type="checkbox" class="task-group-check" onclick="bulkSelectGroup(event,\''+esc(name)+'\')" style="width:14px;height:14px;cursor:pointer;accent-color:var(--crimson);flex-shrink:0;" />'
+    +'<input type="checkbox" class="task-group-check" onclick="bulkSelectGroup(event,\''+escJs(name)+'\')" style="width:14px;height:14px;cursor:pointer;accent-color:var(--crimson);flex-shrink:0;" />'
     +'<span class="group-drag-handle" title="ここをドラッグして並び替え" onmousedown="gripMouseDown(event,this)" onmouseup="gripMouseUp(event,this)" onclick="event.stopPropagation()">⠇</span>'
     +'<span class="task-group-name">'+esc(name)+'</span>'
     +'<span class="task-group-count">'+tasks.length+'</span>'
@@ -2529,7 +2534,6 @@ function renderTaskCard(t){
     if(dueIso<_today2) _tdbCls+=' tdb-overdue';
     else if(dueIso===_today2) _tdbCls+=' tdb-today';
     else if(dueIso===_tomorrow2) _tdbCls+=' tdb-tomorrow';
-    _dateBlockHtml='<div class="'+_tdbCls+'" onclick="toggleDateInput(event,\''+t.id+'\')">'
     _dateBlockHtml='<div class="'+_tdbCls+'" style="position:relative;" onclick="toggleDateInput(event,\''+t.id+'\')">'
       +'<span class="tdb-year">'+_dtObj.getFullYear()+'</span>'
       +'<span class="tdb-date">'+_mon+'/'+_day+'</span>'
@@ -3274,8 +3278,9 @@ function saveTask(){
   var isNew=!_curTaskId;
   if(_curTaskId){
     var t=_tasks.find(function(x){return x.id===_curTaskId;});
+    var _prevStatus=t?t.status:'';
     if(t){ Object.assign(t,data); t.updatedAt=now; if(t.dueTime===undefined) t.dueTime=''; }
-    if(data.status==='done'&&data.recurringOn) spawnNextRecurring(t);
+    if(data.status==='done'&&data.recurringOn&&_prevStatus!=='done') spawnNextRecurring(t);
   } else {
     var nt=Object.assign({id:genId(),createdBy:_settings.myName||'',createdAt:now,updatedAt:now,dueTime:''},data);
     _tasks.push(nt);
@@ -3335,7 +3340,8 @@ function calcNextRecurDue(t){
     // 川上さん指示(2026-06-15)：毎月◯日は期限日基準で固定。元の期限日の翌月◯日。
     var day=t.recurringMonthday||10;
     var startMd=(t.dueDate)?new Date(t.dueDate+'T00:00:00'):new Date(today);
-    startMd.setDate(1); startMd.setMonth(startMd.getMonth()+1); startMd.setDate(day);
+    startMd.setDate(1); startMd.setMonth(startMd.getMonth()+1);
+    startMd.setDate(Math.min(day, new Date(startMd.getFullYear(), startMd.getMonth()+1, 0).getDate()));
     return localDateStr(startMd);
   }
   if(rtype==='fixed_yearday'){
@@ -3343,7 +3349,8 @@ function calcNextRecurDue(t){
     var ym=(t.recurringYearMonth!=null&&t.recurringYearMonth!=='')?parseInt(t.recurringYearMonth):4;
     var yd=(t.recurringYearDay!=null&&t.recurringYearDay!=='')?parseInt(t.recurringYearDay):1;
     var startY=(t.dueDate)?new Date(t.dueDate+'T00:00:00'):new Date(today);
-    startY.setDate(1); startY.setFullYear(startY.getFullYear()+1); startY.setMonth(ym-1); startY.setDate(yd);
+    startY.setDate(1); startY.setFullYear(startY.getFullYear()+1); startY.setMonth(ym-1);
+    startY.setDate(Math.min(yd, new Date(startY.getFullYear(), startY.getMonth()+1, 0).getDate()));
     return localDateStr(startY);
   }
   // relative: 完了日基準（今日）から計算。掃除など「完了したらしばらくやらなくていい」タスク向け。
@@ -3352,8 +3359,8 @@ function calcNextRecurDue(t){
   var n=t.recurringN||1;
   if(t.recurringUnit==='day')   d.setDate(d.getDate()+n);
   if(t.recurringUnit==='week')  d.setDate(d.getDate()+n*7);
-  if(t.recurringUnit==='month') d.setMonth(d.getMonth()+n);
-  if(t.recurringUnit==='year')  d.setFullYear(d.getFullYear()+n);
+  if(t.recurringUnit==='month'){ var _md=d.getDate(); d.setDate(1); d.setMonth(d.getMonth()+n); d.setDate(Math.min(_md, new Date(d.getFullYear(), d.getMonth()+1, 0).getDate())); }
+  if(t.recurringUnit==='year'){ var _yd=d.getDate(); d.setDate(1); d.setFullYear(d.getFullYear()+n); d.setDate(Math.min(_yd, new Date(d.getFullYear(), d.getMonth()+1, 0).getDate())); }
   return localDateStr(d);
 }
 function deleteCurrentTask(){
@@ -3376,7 +3383,7 @@ function cycleTaskStatus(id){
   var prev=t.status;
   t.status=seq[t.status]||'todo';
   t.updatedAt=new Date().toISOString();
-  if(t.status==='done'&&t.recurringOn) spawnNextRecurring(t);
+  if(t.status==='done'&&t.recurringOn&&prev!=='done') spawnNextRecurring(t);
   // 演出：カードを取得して再描画前にアニメ用クラスを付ける
   var card=document.getElementById('tc-'+id);
   var cardRect=card?card.getBoundingClientRect():null;
@@ -3529,6 +3536,7 @@ function bulkDeleteIssue(){
   var ids=Array.from(_bulkSelectedIssue);
   ids.forEach(function(id){
     _issues=_issues.filter(function(x){return x.id!==id;});
+    _deletedIssueIds.add(id); localStorage.setItem(KDI, JSON.stringify([..._deletedIssueIds]));
     deleteIssueFromGas(id);
   });
   clearBulkIssue();
@@ -3651,19 +3659,19 @@ function toggleBulkPopup(id){
     // カテゴリ・担当者は動的に生成
     if(id==='bulk-pop-cat'){
       menu.innerHTML=_cats.map(function(c){
-        return '<button class="bulk-popup-item" onclick="bulkChangeField(&quot;category&quot;,&quot;'+esc(c)+'&quot;);closeBulkPopups()">'+esc(c)+'</button>';
+        return '<button class="bulk-popup-item" onclick="bulkChangeField(\'category\',\''+escJs(c)+'\');closeBulkPopups()">'+esc(c)+'</button>';
       }).join('');
     }
     if(id==='bulk-pop-ptask-asg'){
       menu.innerHTML='<button class="bulk-popup-item" onclick="bulkPtaskChangeField(&quot;assignee&quot;,&quot;&quot;);closeBulkPopups()">（なし）</button>'
         + _asgs.map(function(a){
-            return '<button class="bulk-popup-item" onclick="bulkPtaskChangeField(&quot;assignee&quot;,&quot;'+esc(a)+'&quot;);closeBulkPopups()">'+esc(a)+'</button>';
+            return '<button class="bulk-popup-item" onclick="bulkPtaskChangeField(\'assignee\',\''+escJs(a)+'\');closeBulkPopups()">'+esc(a)+'</button>';
           }).join('');
     }
     if(id==='bulk-pop-asg'){
       menu.innerHTML='<button class="bulk-popup-item" onclick="bulkChangeField(&quot;assignee&quot;,&quot;&quot;);closeBulkPopups()">（なし）</button>'
         +_asgs.map(function(a){
-          return '<button class="bulk-popup-item" onclick="bulkChangeField(&quot;assignee&quot;,&quot;'+esc(a)+'&quot;);closeBulkPopups()">'+esc(a)+'</button>';
+          return '<button class="bulk-popup-item" onclick="bulkChangeField(\'assignee\',\''+escJs(a)+'\');closeBulkPopups()">'+esc(a)+'</button>';
         }).join('');
     }
     if(id==='bulk-pop-issue-asg'){
@@ -3672,13 +3680,13 @@ function toggleBulkPopup(id){
       _asgs.forEach(function(a){ if(issueAsgs.indexOf(a)===-1) issueAsgs.push(a); });
       menu.innerHTML='<button class="bulk-popup-item" onclick="bulkIssueChangeField(&quot;assignee&quot;,&quot;&quot;);closeBulkPopups()">（なし）</button>'
         +issueAsgs.map(function(a){
-          return '<button class="bulk-popup-item" onclick="bulkIssueChangeField(&quot;assignee&quot;,&quot;'+esc(a)+'&quot;);closeBulkPopups()">'+esc(a)+'</button>';
+          return '<button class="bulk-popup-item" onclick="bulkIssueChangeField(\'assignee\',\''+escJs(a)+'\');closeBulkPopups()">'+esc(a)+'</button>';
         }).join('');
     }
     if(id==='bulk-pop-ptask-asg'){
       menu.innerHTML='<button class="bulk-popup-item" onclick="bulkPtaskChangeField(&quot;assignee&quot;,&quot;&quot;);closeBulkPopups()">（なし）</button>'
         +_asgs.map(function(a){
-          return '<button class="bulk-popup-item" onclick="bulkPtaskChangeField(&quot;assignee&quot;,&quot;'+esc(a)+'&quot;);closeBulkPopups()">'+esc(a)+'</button>';
+          return '<button class="bulk-popup-item" onclick="bulkPtaskChangeField(\'assignee\',\''+escJs(a)+'\');closeBulkPopups()">'+esc(a)+'</button>';
         }).join('');
     }
     menu.classList.add('open');
@@ -3885,8 +3893,9 @@ function bulkChangeStatus(status){
   if(!status||_bulkSelected.size===0) return;
   _bulkSelected.forEach(function(id){
     var t=_tasks.find(function(x){return x.id===id;}); if(!t) return;
+    var prevBulk=t.status;
     t.status=status; t.updatedAt=new Date().toISOString();
-    if(status==='done'&&t.recurringOn) spawnNextRecurring(t);
+    if(status==='done'&&t.recurringOn&&prevBulk!=='done') spawnNextRecurring(t);
   });
   saveLocal();
   _bulkSelected.forEach(function(id){ pushTaskToGas(id); });
@@ -4162,7 +4171,7 @@ function taskStatusChange(e,id){
   var t=_tasks.find(function(x){return x.id===id;}); if(!t) return;
   var prev=t.status;
   t.status=e.target.value; t.updatedAt=new Date().toISOString();
-  if(t.status==='done'&&t.recurringOn) spawnNextRecurring(t);
+  if(t.status==='done'&&t.recurringOn&&prev!=='done') spawnNextRecurring(t);
   // 子タスクに完了通知をセット
   if(t.status==='done'){
     var shortTitle=t.title.length>20?t.title.slice(0,20)+'…':t.title;
@@ -4250,6 +4259,7 @@ function quickDeleteIssue(e,id){
   if(card){ card.style.transition='opacity 0.2s'; card.style.opacity='0'; }
   setTimeout(function(){
     _issues=_issues.filter(function(x){return x.id!==id;});
+    _deletedIssueIds.add(id); localStorage.setItem(KDI, JSON.stringify([..._deletedIssueIds]));
     saveLocal(); renderBoard();
     if(_settings.gasUrl){
       var fd=new FormData(); fd.append('action','deleteIssue'); fd.append('id',id);
@@ -4666,7 +4676,7 @@ function renderBoard(){
       var sc={open:'badge-open',tasked:'badge-tasked',closed:'badge-closed',projected:'badge-projected'};
       var cc=(i.comments||[]).length; var localImgCount=(i.attachedImages||[]).length;
       var firstLocalImg=(i.attachedImages&&i.attachedImages.length)?i.attachedImages[0].dataUrl:null; var firstImg=firstLocalImg||(i.imageUrls||[]).find(function(u){return /\.(jpe?g|png|gif|webp|bmp|svg)(\?.*)?$/i.test(u);});
-      var thumb=firstImg?'<img class="issue-card-thumb" src="'+esc(firstImg)+'" alt="" onerror="this.style.display=\'none\'" onclick="openLightbox(\''+esc(firstImg)+'\');event.stopPropagation();">':'';
+      var thumb=firstImg?'<img class="issue-card-thumb" src="'+esc(firstImg)+'" alt="" onerror="this.style.display=\'none\'" onclick="openLightbox(\''+escJs(firstImg)+'\');event.stopPropagation();">':'';
       var memoHtml=i.memo
         ?'<div class="issue-card-memo" onclick="issueCardInlineEditMemo(event,\''+i.id+'\')" title="クリックでメモ編集">'+esc(stripHtmlTags(i.memo).slice(0,60))+(stripHtmlTags(i.memo).length>60?'…':'')+'</div>'
         :'<div class="issue-card-memo-placeholder" onclick="issueCardInlineEditMemo(event,\''+i.id+'\')" title="メモを追加">＋ メモ</div>';
@@ -5615,6 +5625,7 @@ function deleteCurrentIssue(){
   var i=_issues.find(function(x){return x.id===_curIssueId;});
   if(!i||!confirm('「'+i.title+'」を削除しますか？')) return;
   _issues=_issues.filter(function(x){return x.id!==_curIssueId;});
+  _deletedIssueIds.add(_curIssueId); localStorage.setItem(KDI, JSON.stringify([..._deletedIssueIds]));
   saveLocal(); renderBoard(); closeDetail(); toast('削除しました'); deleteIssueFromGas(_curIssueId);
 }
 function moveIssueQ(q){
@@ -6734,6 +6745,7 @@ function syncFromGas(){
         var mergedIssues=[];
         // GASデータを起点にマージ
         d.issues.forEach(function(gi){
+          if(_deletedIssueIds.has(gi.id)) return; // 削除済み課題はGASから来ても復活させない
           var li=localIssueMap[gi.id];
           if(li){
             // 両方存在 → updatedAtが新しい方を採用。同一・不明ならGASを優先
@@ -6784,8 +6796,8 @@ function syncFromGas(){
         Object.values(_localTaskMap).forEach(function(lt){
           var localTime = lt.updatedAt ? new Date(lt.updatedAt).getTime() : 0;
           var isVeryNew = (now - localTime) < 60 * 1000; // 1分以内
-          if(isVeryNew || !lt.updatedAt){
-            mergedTasks.push(lt); // 新規作成中のタスクは残す
+          if(isVeryNew || !lt.updatedAt || _unsavedTaskIds.has(lt.id)){
+            mergedTasks.push(lt); // 新規作成中・未保存(保存失敗)のタスクは残す
           }
           // 1分以上経ってGASにないタスクは削除済みとみなしてスルー
         });
@@ -6878,7 +6890,11 @@ function syncFromGas(){
           }
         }
         if(m.assignees&&m.assignees.length>0){
-          m.assignees.forEach(function(a){ if(_asgs.indexOf(a)===-1) _asgs.push(a); });
+          // 直近60秒以内にsaveMasterした場合はローカルが正（削除直後の担当者復活を防ぐ・カテゴリと同じガード）
+          var recentlySavedAsg = (Date.now() - _lastMasterSaveTime) < 60 * 1000;
+          if(!recentlySavedAsg){
+            m.assignees.forEach(function(a){ if(_asgs.indexOf(a)===-1) _asgs.push(a); });
+          }
         }
         if(m.templates&&m.templates.length>0){
           // 直近60秒以内にsaveMasterした場合はローカルが正（削除直後の復活を防ぐ）
@@ -6893,6 +6909,14 @@ function syncFromGas(){
         _deletedTaskIds=new Set([..._deletedTaskIds].filter(function(id){return gasTaskIds.has(id);}));
         if(_deletedTaskIds.size!==before){
           localStorage.setItem(KDT,JSON.stringify([..._deletedTaskIds]));
+        }
+      }
+      if(d.issues){
+        var gasIssueIds=new Set((d.issues||[]).map(function(i){return i.id;}));
+        var beforeI=_deletedIssueIds.size;
+        _deletedIssueIds=new Set([..._deletedIssueIds].filter(function(id){return gasIssueIds.has(id);}));
+        if(_deletedIssueIds.size!==beforeI){
+          localStorage.setItem(KDI,JSON.stringify([..._deletedIssueIds]));
         }
       }
       saveLocal();
@@ -6928,6 +6952,7 @@ function syncFromGas(){
 // 最終失敗で未保存フラグを立てトースト＋同期ステータスに「未保存あり」を残す。
 // GAS側のsave/deleteはIDで上書き/1行削除＝冪等なので、リトライで重複しない。
 var _unsavedFailCount = 0; // 未送信(最終失敗)が残っている件数。再同期/保存成功で減らす
+var _unsavedTaskIds = new Set(); // 保存が最終失敗したタスクID（1分ゲートで消さないよう保護）
 function markUnsaved(){ _unsavedFailCount++; updateSyncStatusUnsaved(); }
 function clearUnsavedOne(){ if(_unsavedFailCount>0) _unsavedFailCount--; updateSyncStatusUnsaved(); }
 function clearUnsavedAll(){ _unsavedFailCount=0; updateSyncStatusUnsaved(); }
@@ -6961,10 +6986,10 @@ function gasPostRetry(fd, label, opts){
     .catch(function(e){
       if(attempt < 2){ // 最大2回まで再送（計3回試行）
         var fd2 = cloneFormData(fd);
-        setTimeout(function(){ gasPostRetry(fd2, label, {onSuccess:opts.onSuccess, _try:attempt+1, _failed:opts._failed}); }, 2500);
+        setTimeout(function(){ gasPostRetry(fd2, label, {onSuccess:opts.onSuccess, onFinalFail:opts.onFinalFail, _try:attempt+1, _failed:opts._failed}); }, 2500);
       } else {
         // 最終失敗：未保存として計上（まだ計上していなければ）してトースト＋同期ステータスに残す
-        if(!opts._failed){ markUnsaved(); opts._failed=true; }
+        if(!opts._failed){ markUnsaved(); opts._failed=true; if(opts.onFinalFail){ try{ opts.onFinalFail(); }catch(e){} } }
         console.warn('[GAS] 保存最終失敗:', label, e);
         toast('⚠️ 「'+label+'」の保存に失敗しました。もう一度操作してください');
       }
@@ -6995,6 +7020,7 @@ function pushTaskToGas(id){
   // 完全一本化(2026-06-14 川上さん指示)：GカレはGAS側saveTaskが自動同期する。
   // レスポンスのgcalEventId/gcalCalIdを_tasks・localStorageに書き戻して二重登録を防ぐ。
   gasPostRetry(fd, 'タスクの保存', { onSuccess: function(d){
+    _unsavedTaskIds.delete(id);
     var cur=_tasks.find(function(x){return x.id===id;});
     if(cur){
       var changed=false;
@@ -7002,7 +7028,7 @@ function pushTaskToGas(id){
       if((cur.gcalCalId||'')!==(d.gcalCalId||'')){ cur.gcalCalId=d.gcalCalId||''; changed=true; }
       if(changed){ saveLocal(); if(typeof renderAllViews==='function') renderAllViews(); }
     }
-  }});
+  }, onFinalFail: function(){ _unsavedTaskIds.add(id); } });
 }
 function deleteTaskFromGas(id){
   if(!_settings.gasUrl) return;
@@ -7081,6 +7107,7 @@ function launchConfetti(x, y){
 // ============================================================ ユーティリティ
 function genId(){ return Date.now()+'_'+Math.random().toString(36).slice(2,6); }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJs(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function stripHtmlTags(s){
   if(!s) return '';
   var tmp=document.createElement('div'); tmp.innerHTML=s; return tmp.textContent||tmp.innerText||'';
@@ -7150,7 +7177,7 @@ function renderProjectNav(){
   groupOrder.forEach(function(g){
     var isCollapsed=collapsed[g]===true;
     html+='<div class="proj-group">'
-      +'<div class="proj-group-header" onclick="toggleProjGroup(\''+esc(g)+'\');">'
+      +'<div class="proj-group-header" onclick="toggleProjGroup(\''+escJs(g)+'\');">'
       +'<span class="proj-group-arrow">'+(isCollapsed?'▶':'▼')+'</span>'
       +'<span class="proj-group-name">'+esc(g)+'</span>'
       +'</div>'
