@@ -376,6 +376,8 @@ body { font-family: 'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif; backg
 .task-card:hover .task-link-btn { opacity:0.8; }
 /* ホバーハイライト */
 .task-card.relation-highlight { background:#fefce8!important;border-left-color:#fbbf24!important;box-shadow:0 0 0 2px #fde68a; }
+@keyframes tmLocatePulse { 0%{ box-shadow:0 0 0 0 rgba(59,130,246,0.55); } 70%{ box-shadow:0 0 0 7px rgba(59,130,246,0.10); } 100%{ box-shadow:0 0 0 7px rgba(59,130,246,0); } }
+.task-card.tm-locate-flash { animation: tmLocatePulse 1.6s ease-out 1; outline:2px solid var(--blue); outline-offset:-2px; background:#eff6ff; }
 /* カードを相対位置に */
 .task-card { position:relative; }
 /* ===== 並び替え ===== */
@@ -3300,6 +3302,7 @@ function saveTask(){
   var savedTask = _curTaskId
     ? _tasks.find(function(x){return x.id===_curTaskId;})
     : _tasks[_tasks.length-1];
+  if(savedTask) tmLocateCard(savedTask.id);
   pushTaskToGas(_curTaskId||_tasks[_tasks.length-1].id);
   // Gカレ自動エクスポート（期限日・時刻・教室カレンダー設定が揃っているときのみ）
   if(savedTask && shouldAutoExportToGcal(savedTask)){
@@ -3320,6 +3323,7 @@ function spawnNextRecurring(t){
   _tasks.push(nt);
   pushTaskToGas(nt.id); // 完全一本化(2026-06-14)：GカレはGAS側saveTaskが自動同期（pushTaskToGcal重複呼び出しを削除）
   toast('🔁 繰り返しタスクを自動作成しました（'+nd+'）');
+  tmLocateCard(nt.id); // 新しく発生した次回タスクへスクロール＋ハイライト
 }
 function calcNextRecurDue(t){
   // toISOString()はUTC変換で日本時間と1日ずれるため、ローカル日付フォーマット関数を使う
@@ -4135,6 +4139,7 @@ function taskDueChange(e,id){
     t.dueTime='';
   }
   saveLocal(); pushTaskToGas(id); renderAllViews();
+  tmLocateCard(id);
   miniToast('保存済 ✓');
 }
 // ⏰ 時刻インライン編集（⏰アイコンまたは既存バッジをクリックで呼び出す）
@@ -4346,6 +4351,25 @@ function toast(msg,dur){
   el.textContent=msg; el.classList.add('show');
   clearTimeout(el._tid);
   el._tid=setTimeout(function(){ el.classList.remove('show'); }, dur||2200);
+}
+// 操作したタスクカードを追いかける：再描画直後に対象カードへスクロール＋一時ハイライト（2026-08-01）
+function tmLocateCard(id){
+  if(!id) return;
+  setTimeout(function(){
+    var sel='.task-card[id="tc-'+id+'"]';
+    var active=document.querySelector('.view-panel.active');
+    var card=(active&&active.querySelector(sel))||document.querySelector(sel);
+    if(!card) return;
+    // 折りたたまれた完了セクション内なら開く
+    var doneSec=card.closest('.done-section');
+    if(doneSec && !doneSec.classList.contains('open')) doneSec.classList.add('open');
+    if(card.offsetParent===null) return; // 非表示なら何もしない
+    try{ card.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){ try{ card.scrollIntoView(); }catch(e2){} }
+    card.classList.remove('tm-locate-flash');
+    void card.offsetWidth; // reflowでアニメを確実に再始動
+    card.classList.add('tm-locate-flash');
+    setTimeout(function(){ card.classList.remove('tm-locate-flash'); }, 1800);
+  }, 90);
 }
 function miniToast(msg){
   var el=document.getElementById('miniToast'); if(!el) return;
@@ -8717,7 +8741,9 @@ function taskDrop(e,targetId,vid){
     var t=_tasks.find(function(x){return x.id===tid;});
     if(t) t.sortOrder=i;
   });
+  var _movedId=_dragTaskId;
   saveLocal(); renderTaskView(_activeView);
+  tmLocateCard(_movedId);
 }
 // ③グリップのみD&D: マウスダウンで親要素のdraggableをONにする
 function gripMouseDown(e, gripEl){
