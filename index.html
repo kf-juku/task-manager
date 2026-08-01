@@ -133,6 +133,7 @@ body { font-family: 'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif; backg
 .task-date-block .tdb-date { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1; }
 .task-date-block .tdb-meta { font-size: 9.5px; color: var(--text-muted); font-weight: 500; }
 .task-date-block .tdb-time { font-size: 10px; color: #7c3aed; font-weight: 600; }
+.task-date-block .tdb-year { font-size: 8.5px; color: var(--text-light); font-weight: 600; line-height: 1; letter-spacing: .3px; }
 .task-date-block.tdb-overdue .tdb-date { color: #dc2626; }
 .task-date-block.tdb-overdue .tdb-meta { color: #dc2626; }
 .task-date-block.tdb-today .tdb-date { color: var(--crimson); }
@@ -2530,6 +2531,7 @@ function renderTaskCard(t){
     else if(dueIso===_tomorrow2) _tdbCls+=' tdb-tomorrow';
     _dateBlockHtml='<div class="'+_tdbCls+'" onclick="toggleDateInput(event,\''+t.id+'\')">'
     _dateBlockHtml='<div class="'+_tdbCls+'" style="position:relative;" onclick="toggleDateInput(event,\''+t.id+'\')">'
+      +'<span class="tdb-year">'+_dtObj.getFullYear()+'</span>'
       +'<span class="tdb-date">'+_mon+'/'+_day+'</span>'
       +'<span class="tdb-meta">'+_yw+'曜</span>'
       +(t.dueTime?'<span class="tdb-time">'+esc(t.dueTime)+'</span>':'')
