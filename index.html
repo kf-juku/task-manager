@@ -1974,7 +1974,7 @@ window.onload=function(){
   buildUI();
   if(_settings.gasUrl){
     // Gカレ設定を先に取得してから同期（設定がないとGカレ自動登録が動かないため）
-    loadGcalSettings(function(){ syncFromGas(); });
+    loadGcalSettings(function(){ syncFromGas(); drainRetryQueue(); });
   }
   // 操作ベース同期（switchView時・30秒クールダウン）はswitchView内で実行
 };
@@ -4927,6 +4927,8 @@ function openDetail(id){
   // 要実施タスクメモ読み込み
   var amEl=document.getElementById('detailActionMemo');
   if(amEl) amEl.value=(i.actionMemos||[]).join('\n');
+  // 2026-08-21：差分の基準（前回サーバーに送った行）をここで取る
+  _amBaseline=(i.actionMemos||[]).slice();
 }
 function renderComments(i){
   var c=i.comments||[];
@@ -6550,9 +6552,11 @@ function addAiMemoToActionMemo(idx){
   var actions=extractActionsFromAiText(memos[idx].text);
   if(!actions.length){ toast('アクション項目が見つかりませんでした'); return; }
   var existing=(i.actionMemos||[]).filter(function(l){return l.length>0;});
+  var _ops=amAppendOps(existing, actions);   // 2026-08-21：足した行だけ送る
   i.actionMemos=existing.concat(actions);
   i.updatedAt=new Date().toISOString();
-  saveLocal(); pushIssueToGas(i.id);
+  _amBaseline=i.actionMemos.slice();
+  saveLocal(); pushIssueActionMemoOps(i.id, _ops);
   var amEl=document.getElementById('detailActionMemo');
   if(amEl) amEl.value=i.actionMemos.join('\n');
   toast('✅ '+actions.length+'件を要実施タスクに追加しました');
@@ -6561,9 +6565,11 @@ function addAiMemoToActionMemo(idx){
 function applyAiActionsDirectly(actions){
   var i=_issues.find(function(x){return x.id===_curIssueId;}); if(!i) return;
   var existing=(i.actionMemos||[]).filter(function(l){return l.length>0;});
+  var _ops=amAppendOps(existing, actions);   // 2026-08-21：足した行だけ送る
   i.actionMemos=existing.concat(actions);
   i.updatedAt=new Date().toISOString();
-  saveLocal(); pushIssueToGas(i.id);
+  _amBaseline=i.actionMemos.slice();
+  saveLocal(); pushIssueActionMemoOps(i.id, _ops);
   var amEl=document.getElementById('detailActionMemo');
   if(amEl) amEl.value=i.actionMemos.join('\n');
   miniToast('✅ '+actions.length+'件を要実施タスクに追加');
@@ -6579,10 +6585,15 @@ function saveActionMemo(){
   var amEl=document.getElementById('detailActionMemo');
   if(!amEl) return;
   var lines=amEl.value.split('\n').map(function(l){return l.trim();}).filter(function(l){return l.length>0;});
+  // 2026-08-21：配列を丸ごと送るのをやめ、前回送った行との差分だけを送る。
+  // 基準が無い（詳細を開かずに呼ばれた）ときは、今ローカルが持っている行を基準にする。
+  var _base=(_amBaseline!=null)?_amBaseline:((i.actionMemos||[]).slice());
+  var _ops=diffActionMemoLines(_base, lines);
   i.actionMemos=lines;
   i.updatedAt=new Date().toISOString();
+  _amBaseline=lines.slice();   // 送った内容を次の基準にする（連続入力で同じopsを送り直さない）
   saveLocal();
-  pushIssueToGas(i.id);
+  if(_ops.length) pushIssueActionMemoOps(i.id, _ops);
   miniToast('保存済 ✓');
 }
 function getActionMemoLines(issue){
@@ -6620,9 +6631,11 @@ function applyAiActions(){
   if(!selected.length){ closeAiActionModal(); return; }
   var i=_issues.find(function(x){return x.id===_curIssueId;}); if(!i) return;
   var existing=(i.actionMemos||[]).filter(function(l){return l.length>0;});
+  var _ops=amAppendOps(existing, selected);  // 2026-08-21：足した行だけ送る
   i.actionMemos=existing.concat(selected);
   i.updatedAt=new Date().toISOString();
-  saveLocal(); pushIssueToGas(i.id);
+  _amBaseline=i.actionMemos.slice();
+  saveLocal(); pushIssueActionMemoOps(i.id, _ops);
   // テキストエリアを更新
   var amEl=document.getElementById('detailActionMemo');
   if(amEl) amEl.value=i.actionMemos.join('\n');
@@ -7022,6 +7035,8 @@ function syncFromGas(){
         }
       }
       saveLocal();
+      // 2026-08-21：同期のたびに未送信キューを送り直す
+      drainRetryQueue();
       // 一括選択中は再描画しない（チェック状態が消えるため）
       var inBulk = _bulkSelected.size>0 || _bulkSelectedIssue.size>0 || _bulkSelectedPtask.size>0;
       // インライン編集中も再描画しない（書きかけのタイトル・メモが消えるため。2026-06-11 GAS連携監査対応）
@@ -7055,12 +7070,82 @@ function syncFromGas(){
 // GAS側のsave/deleteはIDで上書き/1行削除＝冪等なので、リトライで重複しない。
 var _unsavedFailCount = 0; // 未送信(最終失敗)が残っている件数。再同期/保存成功で減らす
 var _unsavedTaskIds = new Set(); // 保存が最終失敗したタスクID（1分ゲートで消さないよう保護）
+// ===== 未送信キュー（2026-08-21）=====
+// 差分保存にしたことで「次の保存でまた全部送るから勝手に直る」という自己修復が無くなった。
+// 1回落ちたら落ちたきりになるので、失敗した差分だけを積んで後で送り直す。
+// 積むのは「変えた分だけを送る差分action」に限る。
+// レコード全体を送る saveIssue / saveProject / saveTask などは積まない。
+// 古い内容を後から流し込むと、その間に他の人が入れた更新を上書きしてしまうため。
+// そちらは「同じレコードをもう一度操作すれば全部送り直される」ので自己修復する。
+var KRQ='tm_retry_queue';
+var RETRY_ACTIONS={updateIssueComments:1, updateProjectList:1, updateIssueActionMemos:1};
+var _draining=false;
+
+function loadRetryQueue(){ try{ return JSON.parse(localStorage.getItem(KRQ)||'[]'); }catch(e){ return []; } }
+function saveRetryQueue(q){ try{ localStorage.setItem(KRQ, JSON.stringify(q||[])); }catch(e){} updateSyncStatusUnsaved(); }
+function retryQueueCount(){ return loadRetryQueue().length; }
+
+// 最終失敗したリクエストをキューに積む。積んだら true。
+function enqueueRetry(fd, label){
+  var o={};
+  try{ fd.forEach(function(v,k){ o[k]=String(v); }); }catch(e){ return false; }
+  if(!RETRY_ACTIONS[o.action]) return false;
+  var q=loadRetryQueue();
+  if(q.length>=200) q.shift();   // 際限なく溜めない（古いものから捨てる）
+  q.push({qid:genCid('q'), params:o, label:label||'', at:new Date().toISOString()});
+  saveRetryQueue(q);
+  return true;
+}
+
+// キューを順番に送り直す。全部の差分actionは冪等なので、二重に反映されることはない。
+function drainRetryQueue(done){
+  if(_draining||!_settings.gasUrl){ if(done) done(); return; }
+  var q=loadRetryQueue();
+  if(!q.length){ if(done) done(); return; }
+  _draining=true;
+  var idx=0, sent=0, dropped=0;
+  (function step(){
+    if(idx>=q.length){
+      _draining=false; saveRetryQueue([]);
+      if(sent>0) toast('✅ 未送信だった'+sent+'件を保存しました');
+      if(done) done(); return;
+    }
+    var item=q[idx]||{};
+    var fd=new FormData();
+    Object.keys(item.params||{}).forEach(function(k){ fd.append(k, item.params[k]); });
+    fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d&&d.success){ sent++; idx++; step(); return; }
+        var msg=String((d&&d.error)||'');
+        // 対象が消えている・指定が壊れている＝何度送っても通らないので捨てる
+        if(msg.indexOf('not found')>=0||msg.indexOf('required')>=0||msg.indexOf('unknown action')>=0){
+          dropped++; idx++; step(); return;
+        }
+        throw new Error(msg||'non-success');
+      })
+      .catch(function(){
+        // まだ送れない：送れた分だけ外して、残りは次の機会に回す
+        _draining=false;
+        saveRetryQueue(q.slice(idx));
+        if(sent>0) toast('✅ 未送信だった'+sent+'件を保存しました');
+        if(done) done();
+      });
+  })();
+}
+
 function markUnsaved(){ _unsavedFailCount++; updateSyncStatusUnsaved(); }
 function clearUnsavedOne(){ if(_unsavedFailCount>0) _unsavedFailCount--; updateSyncStatusUnsaved(); }
 function clearUnsavedAll(){ _unsavedFailCount=0; updateSyncStatusUnsaved(); }
 function updateSyncStatusUnsaved(){
   var el=document.getElementById('syncStatus'); if(!el) return;
-  if(_unsavedFailCount>0){
+  var _q=(typeof retryQueueCount==='function')?retryQueueCount():0;
+  if(_q>0){
+    // 差分はキューに残っているので、次の同期や操作で自動的に送り直される
+    el.textContent='⏳ 未送信の変更が'+_q+'件あります（あとで自動で送り直します）'
+      +(_unsavedFailCount>0?' ／ 手動で操作し直すもの'+_unsavedFailCount+'件':'');
+    el.style.color='var(--danger,#d33)';
+  } else if(_unsavedFailCount>0){
     el.textContent='⚠ 保存できなかった変更があります（'+_unsavedFailCount+'件）。対象をもう一度操作して保存し直してください';
     el.style.color='var(--danger,#d33)';
   } else {
@@ -7073,6 +7158,8 @@ function gasPostRetry(fd, label, opts){
   opts = opts || {};
   if(!_settings.gasUrl) return;
   var attempt = opts._try || 0;
+  // 最終失敗時にキューへ積むための控え（FormDataは送信に使うと読み直せないため先に複製する）
+  var _keep = cloneFormData(fd);
   fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow'})
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -7091,9 +7178,17 @@ function gasPostRetry(fd, label, opts){
         setTimeout(function(){ gasPostRetry(fd2, label, {onSuccess:opts.onSuccess, onFinalFail:opts.onFinalFail, _try:attempt+1, _failed:opts._failed}); }, 2500);
       } else {
         // 最終失敗：未保存として計上（まだ計上していなければ）してトースト＋同期ステータスに残す
-        if(!opts._failed){ markUnsaved(); opts._failed=true; if(opts.onFinalFail){ try{ opts.onFinalFail(); }catch(e){} } }
         console.warn('[GAS] 保存最終失敗:', label, e);
-        toast('⚠️ 「'+label+'」の保存に失敗しました。もう一度操作してください');
+        // 差分actionならキューに積んで後で送り直す（レコード全体を送るものは積まない）
+        var _queued=false;
+        try{ _queued=enqueueRetry(_keep, label); }catch(e2){ console.warn('キュー登録に失敗', e2); }
+        if(_queued){
+          if(opts.onFinalFail){ try{ opts.onFinalFail(); }catch(e3){} }
+          toast('⏳ 「'+label+'」はまだ送れていません。あとで自動で送り直します');
+        } else {
+          if(!opts._failed){ markUnsaved(); opts._failed=true; if(opts.onFinalFail){ try{ opts.onFinalFail(); }catch(e3){} } }
+          toast('⚠️ 「'+label+'」の保存に失敗しました。もう一度操作してください');
+        }
       }
     });
 }
@@ -7125,8 +7220,99 @@ function pushIssueToGas(id, done){
   // 2026-08-21：コメント列はGAS側でシートの既存値を維持してもらう。
   // saveIssue は33箇所から呼ばれ、ステータス変更だけでも課題オブジェクト全体
   //（コメント配列込み）を送るため、これが無いと専用actionの差分更新が巻き戻る。
-  fd.append('keep','comments');
+  fd.append('keep','comments,actionMemos');
   gasPostRetry(fd, '課題の保存', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
+}
+
+// ===== 要実施タスク（actionMemos）の差分送信（2026-08-21）=====
+// actionMemos は「ただの文字列の配列」で、画面はテキストエリア（全文置換）。
+// 要素にIDを持たせるとデータの形が変わり join('\n')・getActionMemoLines・
+// 古い端末の表示が壊れるので、**行のテキストそのものを照合キーにする**。
+// 並びを保つため、①同じ位置の置き換えは edit として送る
+// ②挿入には「直前の行」をアンカー(after)として添える。
+
+// 前回サーバーに送った行（差分の基準）。課題詳細を開いたときと保存成功時に更新する。
+var _amBaseline = null;
+
+// 末尾に何行か足すときの ops（AIまとめからの追加で使う）
+function amAppendOps(existing, lines){
+  var ops=[], anchor=(existing&&existing.length)?existing[existing.length-1]:'';
+  (lines||[]).forEach(function(t){
+    t=String(t||'').trim(); if(!t) return;
+    ops.push({op:'add', text:t, after:anchor});
+    anchor=t;
+  });
+  return ops;
+}
+
+// 行の差分を取る（最長共通部分列）。変わっていない行を軸にして、
+// 削除と追加が隣り合っていたら「その場の編集」として扱う＝並びが変わらない。
+function diffActionMemoLines(oldArr, newArr){
+  oldArr=oldArr||[]; newArr=newArr||[];
+  var n=oldArr.length, m=newArr.length;
+  var dp=[]; for(var a=0;a<=n;a++){ var row=[]; for(var b=0;b<=m;b++) row.push(0); dp.push(row); }
+  for(var a2=n-1;a2>=0;a2--){
+    for(var b2=m-1;b2>=0;b2--){
+      dp[a2][b2]=(oldArr[a2]===newArr[b2])?dp[a2+1][b2+1]+1:Math.max(dp[a2+1][b2],dp[a2][b2+1]);
+    }
+  }
+  var ops=[], i=0, j=0, anchor='', pendDel=[], pendAdd=[];
+  function flush(){
+    while(pendDel.length&&pendAdd.length){
+      var od=pendDel.shift(), na=pendAdd.shift();
+      if(od!==na) ops.push({op:'edit', mkey:od, text:na});
+      anchor=na;
+    }
+    while(pendDel.length) ops.push({op:'del', mkey:pendDel.shift()});
+    while(pendAdd.length){ var t=pendAdd.shift(); ops.push({op:'add', text:t, after:anchor}); anchor=t; }
+  }
+  while(i<n&&j<m){
+    if(oldArr[i]===newArr[j]){ flush(); anchor=oldArr[i]; i++; j++; }
+    else if(dp[i+1][j]>=dp[i][j+1]){ pendDel.push(oldArr[i]); i++; }
+    else { pendAdd.push(newArr[j]); j++; }
+  }
+  while(i<n){ pendDel.push(oldArr[i]); i++; }
+  while(j<m){ pendAdd.push(newArr[j]); j++; }
+  flush();
+  return ops;
+}
+
+// 要実施タスクを「変えた行だけ」送る
+function pushIssueActionMemoOps(issueId, ops, done){
+  if(!_settings.gasUrl){ if(done) done(); return; }
+  if(!ops||!ops.length){ if(done) done(); return; }
+  var fd=new FormData();
+  fd.append('action','updateIssueActionMemos');
+  fd.append('id',issueId);
+  fd.append('ops',JSON.stringify(ops));
+  gasPostRetry(fd, '要実施タスクの保存', {
+    onSuccess: function(d){
+      var cur=_issues.find(function(x){return x.id===issueId;});
+      if(cur && d && d.actionMemos){
+        cur.actionMemos=d.actionMemos;
+        if(d.updatedAt) cur.updatedAt=d.updatedAt;
+        saveLocal();
+        if(_curIssueId===issueId){
+          _amBaseline=d.actionMemos.slice();
+          // 入力中に他の人の行が増えていたら画面にも反映する。
+          // ただし打鍵中のカーソルを飛ばさないよう、テキストエリアに触るのは
+          // 今の表示内容が送った内容と一致しているとき（＝入力が止まっているとき）だけ。
+          var amEl=document.getElementById('detailActionMemo');
+          if(amEl){
+            var shown=amEl.value.split('\n').map(function(l){return l.trim();}).filter(function(l){return l.length>0;});
+            if(shown.join('\n')!==d.actionMemos.join('\n') && document.activeElement!==amEl){
+              amEl.value=d.actionMemos.join('\n');
+            }
+          }
+        }
+      }
+      if(d && d.skipped && d.skipped.length){
+        toast('⚠️ 要実施タスク'+d.skipped.length+'行は対象が見つからず保存できませんでした（他の端末で変更された可能性）');
+      }
+      if(done) done();
+    },
+    onFinalFail: function(){ if(done) done(); }
+  });
 }
 
 // 課題のコメントを「変えた1件だけ」送る（2026-08-21）
