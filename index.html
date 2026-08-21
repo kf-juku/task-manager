@@ -4965,9 +4965,14 @@ function startEditComment(idx){
     if(saved) return; saved=true;
     var val=ta.value.trim();
     if(val===''){deleteComment(idx);return;}
-    cArr[idx].text=val; cArr[idx].at=new Date().toISOString();
+    // 2026-08-21：編集した1件だけを送る。照合キーは書き換える前の値から作る。
+    var _tgt=cArr[idx];
+    var _cid=_tgt.cid||'';
+    var _mkey=String(_tgt.author||'')+'|'+String(_tgt.at||'');
+    _tgt.text=val; _tgt.at=new Date().toISOString();
     i.updatedAt=new Date().toISOString();
-    saveLocal(); renderComments(i); pushIssueToGas(i.id);
+    saveLocal(); renderComments(i);
+    pushIssueCommentOps(i.id, [{op:'edit', cid:_cid, mkey:_mkey, text:val, at:_tgt.at}]);
   }
   ta.addEventListener('keydown',function(ev){
     if(isConfirmKey(ev)){ev.preventDefault();saveEdit();}
@@ -4979,9 +4984,14 @@ function deleteComment(idx){
   var i=_issues.find(function(x){return x.id===_curIssueId;});
   if(!i) return;
   if(!confirm('このコメントを削除しますか？')) return;
+  // 2026-08-21：削除した1件だけを送る。照合キーは消す前の値から作る。
+  var _tgt=i.comments[idx]||{};
+  var _cid=_tgt.cid||'';
+  var _mkey=String(_tgt.author||'')+'|'+String(_tgt.at||'');
   i.comments.splice(idx,1);
   i.updatedAt=new Date().toISOString();
-  saveLocal(); renderComments(i); renderBoard(); pushIssueToGas(i.id);
+  saveLocal(); renderComments(i); renderBoard();
+  pushIssueCommentOps(i.id, [{op:'del', cid:_cid, mkey:_mkey}]);
 }
 // ===== 詳細パネル：写真 =====
 function isImageUrl(url){
@@ -5663,11 +5673,15 @@ function addComment(){
   var i=_issues.find(function(x){return x.id===_curIssueId;});
   if(!i) return;
   if(!i.comments) i.comments=[];
-  i.comments.push({author:_settings.myName||'匿名',text:text,at:new Date().toISOString()});
+  // 2026-08-21：配列を丸ごと送るのをやめ、追加した1件だけを送る。
+  // 古い画面を開いたままの端末が1件書くと、その間に他の人が書いた分が消えていた。
+  var _c={cid:genCid('c'), author:_settings.myName||'匿名', text:text, at:new Date().toISOString()};
+  i.comments.push(_c);
   i.updatedAt=new Date().toISOString();
   saveLocal(); renderComments(i); renderBoard();
   document.getElementById('newCommentText').value='';
-  toast('コメントを追加しました'); pushIssueToGas(i.id);
+  toast('コメントを追加しました');
+  pushIssueCommentOps(i.id, [{op:'add', item:_c}]);
 }
 function closeDetail(){
   document.getElementById('detailOverlay').classList.remove('show');
@@ -7108,7 +7122,38 @@ function pushIssueToGas(id, done){
   if(!_settings.gasUrl){ if(done) done(); return; }
   var i=_issues.find(function(x){return x.id===id;}); if(!i){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','saveIssue'); fd.append('issue',JSON.stringify(i));
+  // 2026-08-21：コメント列はGAS側でシートの既存値を維持してもらう。
+  // saveIssue は33箇所から呼ばれ、ステータス変更だけでも課題オブジェクト全体
+  //（コメント配列込み）を送るため、これが無いと専用actionの差分更新が巻き戻る。
+  fd.append('keep','comments');
   gasPostRetry(fd, '課題の保存', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
+}
+
+// 課題のコメントを「変えた1件だけ」送る（2026-08-21）
+// 成功したらサーバーが返した配列でローカルを置き換える＝他の人のコメントもその場で入る。
+function pushIssueCommentOps(issueId, ops, done){
+  if(!_settings.gasUrl){ if(done) done(); return; }
+  var fd=new FormData();
+  fd.append('action','updateIssueComments');
+  fd.append('id',issueId);
+  fd.append('ops',JSON.stringify(ops||[]));
+  gasPostRetry(fd, 'コメントの保存', {
+    onSuccess: function(d){
+      var cur=_issues.find(function(x){return x.id===issueId;});
+      if(cur && d && d.comments){
+        cur.comments=d.comments;
+        if(d.updatedAt) cur.updatedAt=d.updatedAt;
+        saveLocal();
+        if(_curIssueId===issueId && typeof renderComments==='function') renderComments(cur);
+        if(typeof renderBoard==='function') renderBoard();
+      }
+      if(d && d.skipped && d.skipped.length){
+        toast('⚠️ コメント'+d.skipped.length+'件は対象が見つからず保存できませんでした（他の端末で削除された可能性）');
+      }
+      if(done) done();
+    },
+    onFinalFail: function(){ if(done) done(); }
+  });
 }
 function deleteIssueFromGas(id){
   if(!_settings.gasUrl) return;
@@ -7143,7 +7188,41 @@ function pushProjectToGas(id, done){
   if(!_settings.gasUrl){ if(done) done(); return; }
   var p=_projects.find(function(x){return x.id===id;}); if(!p){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','saveProject'); fd.append('project',JSON.stringify(p));
+  // 2026-08-21：議論メモ・作業履歴の列はGAS側でシートの既存値を維持してもらう。
+  // saveProject は14箇所から呼ばれ、メモ欄の保存や定型文の追加でも
+  // プロジェクト全体（memos・logs 込み）を送るため、これが無いと差分更新が巻き戻る。
+  fd.append('keep','memos,logs');
   gasPostRetry(fd, 'プロジェクトの保存', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
+}
+
+// プロジェクトの議論メモ／作業履歴を「変えた1件だけ」送る（2026-08-21）
+// field は 'memos' か 'logs'。課題のコメント(pushIssueCommentOps)と同じ型。
+function pushProjectListOps(projId, field, ops, done){
+  if(!_settings.gasUrl){ if(done) done(); return; }
+  var fd=new FormData();
+  fd.append('action','updateProjectList');
+  fd.append('id',projId);
+  fd.append('field',field);
+  fd.append('ops',JSON.stringify(ops||[]));
+  gasPostRetry(fd, (field==='logs'?'作業履歴の保存':'議論メモの保存'), {
+    onSuccess: function(d){
+      var p=_projects.find(function(x){return x.id===projId;});
+      if(p && d && d[field]){
+        p[field]=d[field];
+        if(d.updatedAt) p.updatedAt=d.updatedAt;
+        saveLocal();
+        if(_activeProjectId===projId){
+          if(field==='logs') renderProjLogTbody(projId);
+          else if(typeof renderProjectDetail==='function') renderProjectDetail(projId);
+        }
+      }
+      if(d && d.skipped && d.skipped.length){
+        toast('⚠️ '+d.skipped.length+'件は対象が見つからず保存できませんでした（他の端末で削除された可能性）');
+      }
+      if(done) done();
+    },
+    onFinalFail: function(){ if(done) done(); }
+  });
 }
 function deleteProjectFromGas(id){
   if(!_settings.gasUrl) return;
@@ -7209,6 +7288,10 @@ function launchConfetti(x, y){
 }
 // ============================================================ ユーティリティ
 function genId(){ return Date.now()+'_'+Math.random().toString(36).slice(2,6); }
+// 配列の中の1要素を指すID（2026-08-21）。コメント・議論メモ・作業履歴のように
+// 1セルにJSONで入っている配列を「変えた要素だけ」送るために使う。
+// 乱数を足すのは、2人が同じミリ秒に作ったときの衝突を避けるため。
+function genCid(prefix){ return (prefix||'c')+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,8); }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escJs(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function stripHtmlTags(s){
@@ -8023,10 +8106,13 @@ function addProjMemo(projId){
   if(!text) return;
   var p=_projects.find(function(x){return x.id===projId;}); if(!p) return;
   p.memos=p.memos||[];
-  p.memos.push({author:_settings.myName||'名前なし',text:text,at:new Date().toISOString()});
+  // 2026-08-21：配列を丸ごと送るのをやめ、追加した1件だけを送る。
+  var _m={cid:genCid('m'), author:_settings.myName||'名前なし', text:text, at:new Date().toISOString()};
+  p.memos.push(_m);
   p.updatedAt=new Date().toISOString();
   ta.value='';
-  saveLocal(); pushProjectToGas(projId);
+  saveLocal();
+  pushProjectListOps(projId,'memos',[{op:'add', item:_m}]);
   miniToast('保存しました');
   renderProjectDetail(projId);
   // 一番下にスクロール
@@ -8051,9 +8137,14 @@ function editProjMemo(projId,idx){
 function saveProjMemoEdit(projId,idx){
   var ta=document.getElementById('pmemo-edit-'+projId+'-'+idx); if(!ta) return;
   var p=_projects.find(function(x){return x.id===projId;}); if(!p) return;
-  p.memos[idx].text=ta.value;
+  // 2026-08-21：編集した1件だけを送る。照合キーは書き換える前の値から作る。
+  var _tgt=p.memos[idx]; if(!_tgt) return;
+  var _cid=_tgt.cid||'';
+  var _mkey=String(_tgt.author||'')+'|'+String(_tgt.at||'');
+  _tgt.text=ta.value;
   p.updatedAt=new Date().toISOString();
-  saveLocal(); pushProjectToGas(projId);
+  saveLocal();
+  pushProjectListOps(projId,'memos',[{op:'edit', cid:_cid, mkey:_mkey, patch:{text:ta.value}}]);
   miniToast('保存しました');
   renderProjectDetail(projId);
 }
@@ -8065,9 +8156,14 @@ function cancelProjMemoEdit(projId,idx){
 function deleteProjMemo(projId,idx){
   if(!confirm('このメモを削除しますか？')) return;
   var p=_projects.find(function(x){return x.id===projId;}); if(!p||!p.memos) return;
+  // 2026-08-21：削除した1件だけを送る。照合キーは消す前の値から作る。
+  var _tgt=p.memos[idx]||{};
+  var _cid=_tgt.cid||'';
+  var _mkey=String(_tgt.author||'')+'|'+String(_tgt.at||'');
   p.memos.splice(idx,1);
   p.updatedAt=new Date().toISOString();
-  saveLocal(); pushProjectToGas(projId);
+  saveLocal();
+  pushProjectListOps(projId,'memos',[{op:'del', cid:_cid, mkey:_mkey}]);
   renderProjectDetail(projId);
 }
 
@@ -8403,6 +8499,26 @@ function autosaveProjNote(projId){
 function addProjLogKey(e,projId){
   if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); addProjLog(projId); }
 }
+// 作業履歴のテーブル本体だけを描き直す（2026-08-21 切り出し）
+// 追加・削除・サーバー応答の3か所から同じものを使う。markupを複数持たない。
+function renderProjLogTbody(projId){
+  var p=_projects.find(function(x){return x.id===projId;}); if(!p) return;
+  var tbody=document.getElementById('plog-tbody-'+projId); if(!tbody) return;
+  var all=p.logs||[];
+  var logs=all.slice().reverse();
+  tbody.innerHTML=logs.length
+    ?logs.map(function(l,li){
+      var origIdx=all.length-1-li;
+      return '<tr>'
+        +'<td class="log-date">'+esc(l.date||'')+'</td>'
+        +'<td class="log-assignee">'+esc(l.assignee||'')+'</td>'
+        +'<td class="log-content">'+esc(l.content||'')+'</td>'
+        +'<td class="log-del"><button class="btn-icon" onclick="deleteProjLog(\''+projId+'\','+origIdx+')" style="color:#dc2626;font-size:12px;" title="削除">×</button></td>'
+        +'</tr>';
+    }).join('')
+    :'<tr><td colspan="4" style="font-size:11px;color:var(--text-light);padding:12px;">まだ履歴はありません</td></tr>';
+}
+
 function addProjLog(projId){
   var dateEl=document.getElementById('plog-date-'+projId);
   var assigneeEl=document.getElementById('plog-assignee-'+projId);
@@ -8412,52 +8528,35 @@ function addProjLog(projId){
   if(!content){ contentEl.focus(); return; }
   var p=_projects.find(function(x){return x.id===projId;}); if(!p) return;
   p.logs=p.logs||[];
-  p.logs.push({
+  // 2026-08-21：配列を丸ごと送るのをやめ、追加した1件だけを送る。
+  var _g={
+    cid: genCid('g'),
     date: dateEl.value||isoDate(new Date()),
     assignee: assigneeEl?assigneeEl.value.trim():(_settings.myName||''),
     content: content
-  });
+  };
+  p.logs.push(_g);
   p.updatedAt=new Date().toISOString();
   contentEl.value='';
-  saveLocal(); pushProjectToGas(projId);
+  saveLocal();
+  pushProjectListOps(projId,'logs',[{op:'add', item:_g}]);
   miniToast('追加しました');
   // テーブルだけ更新（タブを再描画しない）
-  var logs=(p.logs||[]).slice().reverse();
-  var tbody=document.getElementById('plog-tbody-'+projId);
-  if(tbody){
-    tbody.innerHTML=logs.map(function(l,li){
-      var origIdx=(p.logs||[]).length-1-li;
-      return '<tr>'
-        +'<td class="log-date">'+esc(l.date||'')+'</td>'
-        +'<td class="log-assignee">'+esc(l.assignee||'')+'</td>'
-        +'<td class="log-content">'+esc(l.content||'')+'</td>'
-        +'<td class="log-del"><button class="btn-icon" onclick="deleteProjLog(\''+projId+'\','+origIdx+')" style="color:#dc2626;font-size:12px;" title="削除">×</button></td>'
-        +'</tr>';
-    }).join('');
-  }
+  renderProjLogTbody(projId);
 }
 function deleteProjLog(projId,idx){
   if(!confirm('この履歴を削除しますか？')) return;
   var p=_projects.find(function(x){return x.id===projId;}); if(!p||!p.logs) return;
+  // 2026-08-21：削除した1件だけを送る。照合キーは消す前の値から作る。
+  var _tgt=p.logs[idx]||{};
+  var _cid=_tgt.cid||'';
+  var _mkey=String(_tgt.date||'')+'|'+String(_tgt.assignee||'')+'|'+String(_tgt.content||'');
   p.logs.splice(idx,1);
   p.updatedAt=new Date().toISOString();
-  saveLocal(); pushProjectToGas(projId);
+  saveLocal();
+  pushProjectListOps(projId,'logs',[{op:'del', cid:_cid, mkey:_mkey}]);
   // テーブルだけ更新
-  var logs=(p.logs||[]).slice().reverse();
-  var tbody=document.getElementById('plog-tbody-'+projId);
-  if(tbody){
-    tbody.innerHTML=logs.length
-      ?logs.map(function(l,li){
-        var origIdx=(p.logs||[]).length-1-li;
-        return '<tr>'
-          +'<td class="log-date">'+esc(l.date||'')+'</td>'
-          +'<td class="log-assignee">'+esc(l.assignee||'')+'</td>'
-          +'<td class="log-content">'+esc(l.content||'')+'</td>'
-          +'<td class="log-del"><button class="btn-icon" onclick="deleteProjLog(\''+projId+'\','+origIdx+')" style="color:#dc2626;font-size:12px;" title="削除">×</button></td>'
-          +'</tr>';
-      }).join('')
-      :'<tr><td colspan="4" style="font-size:11px;color:var(--text-light);padding:12px;">まだ履歴はありません</td></tr>';
-  }
+  renderProjLogTbody(projId);
 }
 
 function fmtDateTime(iso){
