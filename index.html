@@ -6840,6 +6840,10 @@ function autoRegisterCats(tasks){
   });
   return changed;
 }
+// GASの課題シートは10列（id,title,quadrant,memo,comments,status,createdBy,createdAt,updatedAt,actionMemos）しかなく、
+// 下のフィールドは保存されない。同期でGAS版が勝ったときにローカルからも消えないよう引き継ぐ。
+// 列を増やしたら、その項目はここから外す（二重管理にしない）。
+var ISSUE_LOCAL_FIELDS = ['isPrivate','priority','imageUrls','attachedImages','aiMemos','projectedId','sortOrder','category','assignee'];
 var _syncing = false;
 function syncFromGas(){
   if(!_settings.gasUrl) return;
@@ -6853,7 +6857,7 @@ function syncFromGas(){
   fetch(_settings.gasUrl+'?action=getAll',{redirect:'follow'})
     .then(function(r){return r.json();})
     .then(function(d){
-      // ---- issues マージ（updatedAtが新しい方を優先）----
+      // ---- issues マージ（updatedAtが新しい方を優先 + ローカル専用フィールドを保持）----
       if(d.issues){
         var localIssueMap={};
         _issues.forEach(function(i){ localIssueMap[i.id]=i; });
@@ -6866,7 +6870,21 @@ function syncFromGas(){
             // 両方存在 → updatedAtが新しい方を採用。同一・不明ならGASを優先
             var gasTime=gi.updatedAt?new Date(gi.updatedAt).getTime():0;
             var localTime=li.updatedAt?new Date(li.updatedAt).getTime():0;
-            mergedIssues.push(localTime>gasTime?li:gi);
+            var iWinner=localTime>gasTime?li:gi;
+            // 2026-08-21：ローカル専用フィールドを引き継ぐ。
+            // 課題マージだけ保護が1つも無く（タスク・プロジェクト・アイテムにはある）、
+            // GASの課題行は10列しかないため、GAS版が勝つと下のフィールドが
+            // ローカルからも落ちていた。タスクと同じ形で守る。
+            ISSUE_LOCAL_FIELDS.forEach(function(f){
+              var lv=li[f];
+              if(lv===undefined||lv===null||lv==='') return;
+              if(Array.isArray(lv)&&lv.length===0) return;
+              if(lv===false) return;                       // 未設定と同じ扱い
+              var wv=iWinner[f];
+              var wEmpty=(wv===undefined||wv===null||wv===''||wv===false||(Array.isArray(wv)&&wv.length===0));
+              if(wEmpty) iWinner[f]=lv;
+            });
+            mergedIssues.push(iWinner);
             delete localIssueMap[gi.id];
           } else {
             // GASにあってローカルにない → 新規追加
@@ -6947,6 +6965,19 @@ function syncFromGas(){
             if(local.snippets&&local.snippets.length&&!(gp.snippets&&gp.snippets.length)) gp.snippets=local.snippets;
           }
         });
+        // 2026-08-21：ローカルにのみ存在するプロジェクトを、タスクと同じ条件で残す。
+        // それまで無条件に全置換していたため、保存が3回とも失敗したプロジェクトは
+        // 次の同期でローカルからも消えていた（作った本人の画面からも消える）。
+        var gasProjIds={};
+        d.projects.forEach(function(gp){ gasProjIds[gp.id]=1; });
+        var nowP=Date.now();
+        _projects.forEach(function(lp){
+          if(gasProjIds[lp.id]) return;                      // GASにあるものは上で入っている
+          var t=lp.updatedAt?new Date(lp.updatedAt).getTime():0;
+          var isVeryNew=(nowP-t)<60*1000;                    // 作った直後（1分以内）
+          if(isVeryNew||!lp.updatedAt||_unsavedProjectIds.has(lp.id)) d.projects.push(lp);
+          // 1分以上経ってGASに無いものは削除済みとみなしてスルー
+        });
         _projects=d.projects;
       }
       if(d.projectItems){
@@ -6991,6 +7022,16 @@ function syncFromGas(){
         var newSnap={};
         d.projectItems.forEach(function(it){ newSnap[it.id]=it.updatedAt||''; });
         localStorage.setItem('tm_pitems_snap',JSON.stringify(newSnap));
+        // 2026-08-21：ローカルにのみ存在するアイテムを、タスクと同じ条件で残す（上と同じ理由）
+        var gasItemIds={};
+        d.projectItems.forEach(function(gi2){ gasItemIds[gi2.id]=1; });
+        var nowI=Date.now();
+        _pitems.forEach(function(lp2){
+          if(gasItemIds[lp2.id]) return;
+          var t2=lp2.updatedAt?new Date(lp2.updatedAt).getTime():0;
+          var isVeryNew2=(nowI-t2)<60*1000;
+          if(isVeryNew2||!lp2.updatedAt||_unsavedPItemIds.has(lp2.id)) d.projectItems.push(lp2);
+        });
         _pitems=d.projectItems;
       }
       // マスタ（カテゴリ・担当者・テンプレート）自動取得
@@ -7070,6 +7111,11 @@ function syncFromGas(){
 // GAS側のsave/deleteはIDで上書き/1行削除＝冪等なので、リトライで重複しない。
 var _unsavedFailCount = 0; // 未送信(最終失敗)が残っている件数。再同期/保存成功で減らす
 var _unsavedTaskIds = new Set(); // 保存が最終失敗したタスクID（1分ゲートで消さないよう保護）
+// 2026-08-21 追加：プロジェクト・プロジェクトアイテムにも同じ保護を入れる。
+// それまで syncFromGas が _projects=d.projects / _pitems=d.projectItems で
+// 無条件に全置換しており、保存が届かなかったものは次の同期でローカルからも消えていた。
+var _unsavedProjectIds = new Set();
+var _unsavedPItemIds   = new Set();
 // ===== 未送信キュー（2026-08-21）=====
 // 差分保存にしたことで「次の保存でまた全部送るから勝手に直る」という自己修復が無くなった。
 // 1回落ちたら落ちたきりになるので、失敗した差分だけを積んで後で送り直す。
@@ -7150,7 +7196,11 @@ function updateSyncStatusUnsaved(){
     el.style.color='var(--danger,#d33)';
   } else {
     el.style.color='var(--text-muted)';
-    // 文言は同期処理側が「最終同期：...」で上書きする。ここでは未保存表示だけ消す
+    // 2026-08-21 修正：未送信・未保存が解消したのに文言が残っていた。
+    // 「最終同期：...」は同期処理側が書くが、同期を挟まずにキューが空になった場合
+    //（起動直後の送り直しなど）は誰も上書きしないため、ここで自分の出した文言を消す。
+    var _t=el.textContent||'';
+    if(_t.indexOf('⏳')===0||_t.indexOf('⚠')===0) el.textContent='';
   }
 }
 // fd:FormData label:失敗時トーストに出す対象名 opts:{onSuccess:function(d){}, _try:内部用, _failed:内部用}
@@ -7378,7 +7428,9 @@ function pushProjectToGas(id, done){
   // saveProject は14箇所から呼ばれ、メモ欄の保存や定型文の追加でも
   // プロジェクト全体（memos・logs 込み）を送るため、これが無いと差分更新が巻き戻る。
   fd.append('keep','memos,logs');
-  gasPostRetry(fd, 'プロジェクトの保存', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
+  gasPostRetry(fd, 'プロジェクトの保存', {
+    onSuccess:   function(){ _unsavedProjectIds.delete(id); if(done) done(); },
+    onFinalFail: function(){ _unsavedProjectIds.add(id);    if(done) done(); } });
 }
 
 // プロジェクトの議論メモ／作業履歴を「変えた1件だけ」送る（2026-08-21）
@@ -7412,6 +7464,7 @@ function pushProjectListOps(projId, field, ops, done){
 }
 function deleteProjectFromGas(id){
   if(!_settings.gasUrl) return;
+  _unsavedProjectIds.delete(id);   // 2026-08-21：消したものを「未保存」として残さない
   var fd=new FormData(); fd.append('action','deleteProject'); fd.append('id',id);
   gasPostRetry(fd, 'プロジェクトの削除');
 }
@@ -7419,10 +7472,13 @@ function pushPItemToGas(id, done){
   if(!_settings.gasUrl){ if(done) done(); return; }
   var it=_pitems.find(function(x){return x.id===id;}); if(!it){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','savePItem'); fd.append('item',JSON.stringify(it));
-  gasPostRetry(fd, 'プロジェクトタスクの保存', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
+  gasPostRetry(fd, 'プロジェクトタスクの保存', {
+    onSuccess:   function(){ _unsavedPItemIds.delete(id); if(done) done(); },
+    onFinalFail: function(){ _unsavedPItemIds.add(id);    if(done) done(); } });
 }
 function deletePItemFromGas(id){
   if(!_settings.gasUrl) return;
+  _unsavedPItemIds.delete(id);     // 2026-08-21：消したものを「未保存」として残さない
   var fd=new FormData(); fd.append('action','deletePItem'); fd.append('id',id);
   gasPostRetry(fd, 'プロジェクトタスクの削除');
 }
