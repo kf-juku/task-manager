@@ -4526,8 +4526,13 @@ function showCv(id){
 function mergeCvsFromGas(remote){
   remote.forEach(function(rv){
     var exist=_cvs.find(function(lv){return lv.id===rv.id;});
-    if(!exist) _cvs.push(rv);
-    else Object.assign(exist,rv);
+    if(!exist){ _cvs.push(rv); return; }
+    // 2026-08-21：GAS側が空の categories を返してきても、ローカルの絞り込みを潰さない。
+    // categories はH列を足すまで保存されていなかったので、移行が済むまでGASは空を返す。
+    // 一度でも保存し直せばGASにも入り、以降は普通に上書きされる。
+    var keepCats=(!(rv.categories&&rv.categories.length)&&exist.categories&&exist.categories.length)?exist.categories:null;
+    Object.assign(exist,rv);
+    if(keepCats) exist.categories=keepCats;
   });
 }
 function pushCvToGas(id){
@@ -7181,6 +7186,14 @@ function drainRetryQueue(done){
 }
 
 function markUnsaved(){ _unsavedFailCount++; updateSyncStatusUnsaved(); }
+// 2026-08-21：未保存として記録していたレコードが片付いたら警告を1件減らす。
+// それまで _unsavedFailCount は「リトライが成功したとき」しか減らず、
+// 最終失敗するとリロードするまで「⚠ 保存できなかった変更があります」が残り続けていた
+// （clearUnsavedAll はどこからも呼ばれていないデッドコード）。
+function resolveUnsaved(set, id){
+  if(set && set.has(id)){ set.delete(id); clearUnsavedOne(); return true; }
+  return false;
+}
 function clearUnsavedOne(){ if(_unsavedFailCount>0) _unsavedFailCount--; updateSyncStatusUnsaved(); }
 function clearUnsavedAll(){ _unsavedFailCount=0; updateSyncStatusUnsaved(); }
 function updateSyncStatusUnsaved(){
@@ -7403,7 +7416,7 @@ function pushTaskToGas(id, done){
   // 完全一本化(2026-06-14 川上さん指示)：GカレはGAS側saveTaskが自動同期する。
   // レスポンスのgcalEventId/gcalCalIdを_tasks・localStorageに書き戻して二重登録を防ぐ。
   gasPostRetry(fd, 'タスクの保存', { onSuccess: function(d){
-    _unsavedTaskIds.delete(id);
+    resolveUnsaved(_unsavedTaskIds, id);
     var cur=_tasks.find(function(x){return x.id===id;});
     if(cur){
       var changed=false;
@@ -7415,6 +7428,7 @@ function pushTaskToGas(id, done){
   }, onFinalFail: function(){ _unsavedTaskIds.add(id); if(done) done(); } });
 }
 function deleteTaskFromGas(id, done){
+  resolveUnsaved(_unsavedTaskIds, id);   // 2026-08-21：消したものを「未保存」として残さない
   if(!_settings.gasUrl){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','deleteTask'); fd.append('id',id);
   gasPostRetry(fd, 'タスクの削除', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
@@ -7429,7 +7443,7 @@ function pushProjectToGas(id, done){
   // プロジェクト全体（memos・logs 込み）を送るため、これが無いと差分更新が巻き戻る。
   fd.append('keep','memos,logs');
   gasPostRetry(fd, 'プロジェクトの保存', {
-    onSuccess:   function(){ _unsavedProjectIds.delete(id); if(done) done(); },
+    onSuccess:   function(){ resolveUnsaved(_unsavedProjectIds, id); if(done) done(); },
     onFinalFail: function(){ _unsavedProjectIds.add(id);    if(done) done(); } });
 }
 
@@ -7464,7 +7478,7 @@ function pushProjectListOps(projId, field, ops, done){
 }
 function deleteProjectFromGas(id){
   if(!_settings.gasUrl) return;
-  _unsavedProjectIds.delete(id);   // 2026-08-21：消したものを「未保存」として残さない
+  resolveUnsaved(_unsavedProjectIds, id);   // 2026-08-21：消したものを「未保存」として残さない（警告も1件減らす）
   var fd=new FormData(); fd.append('action','deleteProject'); fd.append('id',id);
   gasPostRetry(fd, 'プロジェクトの削除');
 }
@@ -7473,12 +7487,12 @@ function pushPItemToGas(id, done){
   var it=_pitems.find(function(x){return x.id===id;}); if(!it){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','savePItem'); fd.append('item',JSON.stringify(it));
   gasPostRetry(fd, 'プロジェクトタスクの保存', {
-    onSuccess:   function(){ _unsavedPItemIds.delete(id); if(done) done(); },
+    onSuccess:   function(){ resolveUnsaved(_unsavedPItemIds, id); if(done) done(); },
     onFinalFail: function(){ _unsavedPItemIds.add(id);    if(done) done(); } });
 }
 function deletePItemFromGas(id){
   if(!_settings.gasUrl) return;
-  _unsavedPItemIds.delete(id);     // 2026-08-21：消したものを「未保存」として残さない
+  resolveUnsaved(_unsavedPItemIds, id);     // 2026-08-21：消したものを「未保存」として残さない（警告も1件減らす）
   var fd=new FormData(); fd.append('action','deletePItem'); fd.append('id',id);
   gasPostRetry(fd, 'プロジェクトタスクの削除');
 }
