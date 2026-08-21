@@ -8055,7 +8055,7 @@ function renderProjectDetail(id){
             +'<button class="rich-btn" onmousedown="event.preventDefault();rteExec(\''+id+'\',\'reset\')" title="装飾をすべてリセット" style="color:#9ca3af;">✕ リセット</button>'
             +'<span class="tt" style="margin-left:4px;"><span class="help-mark">?</span><span class="tt-body">💾 <b>自動保存について</b><br>フォーカスを外したとき（他の場所をクリックしたとき）に自動保存されます。入力中はCtrl+Zで何度でも取り消せます。</span></span>'
             +'<span class="project-note-saved" id="pnote-saved-'+id+'" style="font-size:11px;color:var(--text-light);margin-left:4px;"></span>'
-            +'<button class="btn-primary" style="font-size:11px;margin-left:auto;" onclick="saveProjNote(\''+id+'\')" >保存</button>'
+            +'<button class="btn-primary" style="font-size:11px;margin-left:auto;" onmousedown="event.preventDefault();" onclick="saveProjNote(\''+id+'\',true)" >保存</button>'
           +'</div>'
           +'<div class="rich-editor" id="pnote-'+id+'" contenteditable="true" onblur="saveProjNote(\''+id+'\')" onpaste="rtePaste(event,\''+id+'\')" data-placeholder="やることの洗い出し・検討事項・方針メモなど自由に。">'+noteText+'</div>'
         +'</div>'
@@ -8600,21 +8600,35 @@ function saveEditSnippet(projId,idx){
 
 // ---- メモ保存 ----
 var _projNoteSaveTimer={};
-function saveProjNote(projId){
+var _projNoteMsgTimer={};   // 「保存しました」表示を消すタイマー（2026-08-21）
+// manual=true は［保存］ボタンから呼ばれたとき。
+// 2026-08-21 修正：手動保存は変更が無くても必ず結果を出す。
+// ボタンを押すと先に onblur の保存が走るため、click が届く時点では必ず「変更なし」になり、
+// 何も表示せず return していた＝押しても無反応に見えていた（保存自体は済んでいる）。
+function saveProjNote(projId, manual){
   var el=document.getElementById('pnote-'+projId); if(!el) return;
   var p=_projects.find(function(x){return x.id===projId;}); if(!p) return;
-  // 2026-08-21 修正：変更が無いときは送らない。
+  function flash(msg){
+    var saved=document.getElementById('pnote-saved-'+projId); if(!saved) return;
+    saved.textContent=msg;
+    clearTimeout(_projNoteMsgTimer[projId]);
+    _projNoteMsgTimer[projId]=setTimeout(function(){ saved.textContent=''; },2000);
+  }
+  // 変更が無いときはGASに送らない。
   // beforeunload から無条件に呼ばれていたうえ、_projNoteSaveTimer のキーが消えなかったため、
   // メモ欄を一度でも触った端末はタブを閉じるたびにプロジェクト全体
   // （memos・logs を含む）を送り直し、他の人の議論メモを巻き戻す経路になっていた。
   var _v=el.innerHTML;
-  if(_v===(p.note||'')){ try{ delete _projNoteSaveTimer[projId]; }catch(e){} return; }
+  if(_v===(p.note||'')){
+    try{ delete _projNoteSaveTimer[projId]; }catch(e){}
+    if(manual) flash('保存済みです');
+    return;
+  }
   p.note=_v;
   p.updatedAt=new Date().toISOString();
   try{ delete _projNoteSaveTimer[projId]; }catch(e){}
   saveLocal(); pushProjectToGas(projId);
-  var saved=document.getElementById('pnote-saved-'+projId);
-  if(saved){ saved.textContent='保存しました'; setTimeout(function(){ saved.textContent=''; },2000); }
+  flash('保存しました');
 }
 // ===== リッチエディタ =====
 function rteExec(projId, cmd){
