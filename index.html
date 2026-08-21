@@ -1947,9 +1947,11 @@ var _viewSorts={};
 
 // ============================================================ 初期化
 window.addEventListener('beforeunload',function(){
-  // issueMemoSave: ローカル保存のみ（同期的に完了）
+  // 2026-08-21 コメント訂正：この2つは「ローカル保存のみ」ではない。
+  // issueMemoSave → pushIssueToGas、saveProjNote → pushProjectToGas でGASに書き込む。
+  // beforeunload の fetch は keepalive を付けていないためブラウザに中断されることがあり、
+  // 成否が分からない。どちらも「変更が無ければ送らない」を各関数側で担保している。
   issueMemoSave();
-  // プロジェクトメモのローカル保存
   Object.keys(_projNoteSaveTimer||{}).forEach(function(id){ saveProjNote(id); });
   // 2026-07-09 撤去：旧bulkSave全件送信ビーコン。GAS側にbulkSaveハンドラが無くno-op（unknown action）だったうえ、全件送信コードが残ると将来ハンドラ実装時に会員管理型の全件上書き事故になる地雷のため削除。保存は各pushXxxToGasの差分保存＋gasPostRetryで担保済み。
 });
@@ -3478,21 +3480,33 @@ function bulkIssueProjectify(){
   if(_bulkSelectedIssue.size===0) return;
   var ids=Array.from(_bulkSelectedIssue);
   var now=new Date().toISOString();
+  var jobs=[];
   ids.forEach(function(issueId){
     var i=_issues.find(function(x){return x.id===issueId;}); if(!i) return;
+    var newItemIds=[];
     var np={id:genId(),title:i.title,color:'#6366f1',note:i.memo||'',
       memos:[],logs:[],tasks:[],snippets:[],issueId:i.id,createdAt:now,updatedAt:now};
     _projects.push(np);
     var memoLines=getActionMemoLines(i);
     memoLines.forEach(function(line){
-      _pitems.push({id:genId(),projectId:np.id,type:'task',x:0,y:0,w:0,h:0,
+      var pit={id:genId(),projectId:np.id,type:'task',x:0,y:0,w:0,h:0,
         content:{title:line,status:'todo',assignee:_settings.myName||'',category:'',dueDate:'',dueTime:'',memo:''},
-        color:'',createdBy:_settings.myName||'',createdAt:now,updatedAt:now});
+        color:'',createdBy:_settings.myName||'',createdAt:now,updatedAt:now};
+      _pitems.push(pit);
+      newItemIds.push(pit.id);
     });
     i.status='projected'; i.projectedId=np.id; i.updatedAt=now;
-    saveLocal(); pushProjectToGas(np.id); pushIssueToGas(i.id);
+    saveLocal();
+    // 2026-08-21 修正：ここで作ったプロジェクトタスク(_pitems)は pushPItemToGas を
+    // 1回も呼んでおらず、syncFromGas の全置換（_pitems=d.projectItems）で
+    // 次の同期に必ず消えていた＝プロジェクト化したのに中身が空になる。
+    // あわせて、複数件選ぶとGAS書き込みが同時に飛んでロックを取り合うため直列にする。
+    jobs.push(function(next){ pushProjectToGas(np.id, next); });
+    newItemIds.forEach(function(pid){ jobs.push(function(next){ pushPItemToGas(pid, next); }); });
+    jobs.push(function(next){ pushIssueToGas(i.id, next); });
     addSideNavProject(np);
   });
+  gasSequential(jobs);
   var n=ids.length;
   clearBulkIssue();
   renderBoard(); renderProjectNav(); renderCustomViewNav();
@@ -3507,6 +3521,10 @@ function bulkPtaskChangeField(field, value){
     it.content[field]=value; it.updatedAt=new Date().toISOString();
   });
   saveLocal();
+  // 2026-08-21 修正：saveLocal() だけで pushPItemToGas を呼んでおらず、
+  // 変更がGASに届かないまま次の同期（_pitems=d.projectItems の全置換）で元に戻っていた。
+  var chIds=Array.from(_bulkSelectedPtask);
+  gasSequential(chIds.map(function(id){ return function(next){ pushPItemToGas(id, next); }; }));
   var n=_bulkSelectedPtask.size;
   clearBulkPtask();
   if(_activeProjectId) renderProjectDetail(_activeProjectId);
@@ -3640,11 +3658,19 @@ function bulkDeleteTasks(){
   var count=_bulkSelected.size;
   if(!confirm(count+'件のタスクを削除しますか？この操作は元に戻せません。')) return;
   // 完全一本化(2026-06-14)：GカレはGAS側deleteTaskが自動削除する。
-  _bulkSelected.forEach(function(id){ _deletedTaskIds.add(id); });
+  // 2026-08-21 修正：ここは deleteTaskFromGas を1回も呼んでおらず、
+  // 代わりに無関係な autoSaveMasterToGas()（カテゴリ・担当者の全件保存）を呼んでいた。
+  // そのためシートの行もGカレの予定も残り、別端末では削除済みタスクが見えたままだった。
+  // 実データ確認(2026-08-21)：tombstone 6件が6件ともGASに残存、うち4件はGカレ予定も残存。
+  // 単発削除（deleteCurrentTask / confirmQuickDelete）と同じ形に揃える。
+  var delIds=Array.from(_bulkSelected);
+  delIds.forEach(function(id){ _deletedTaskIds.add(id); });
   localStorage.setItem(KDT, JSON.stringify([..._deletedTaskIds]));
   _tasks=_tasks.filter(function(t){ return !_bulkSelected.has(t.id); });
   clearBulkAll();
-  saveLocal(); renderAllViews(); autoSaveMasterToGas();
+  saveLocal(); renderAllViews();
+  // 同時に投げるとロックの取り合いになるので直列で送る
+  gasSequential(delIds.map(function(id){ return function(next){ deleteTaskFromGas(id, next); }; }));
   toast('🗑 '+count+'件削除しました');
 }
 
@@ -5080,7 +5106,10 @@ function detailInlineEditTitle(e){
     var val=ta.value.trim();
     if(val&&val!==i.title){
       i.title=val; i.updatedAt=new Date().toISOString();
-      saveLocal(); renderBoard();
+      // 2026-08-21 修正：pushIssueToGas を呼んでおらず、詳細パネルから変えたタイトルが
+      // GASに届かないまま次の同期で元に戻っていた。
+      // 課題ボードのカード側(issueCardInlineEditTitle)は元から送っていた＝経路で挙動が違った。
+      saveLocal(); renderBoard(); pushIssueToGas(i.id);
     }
     openDetail(_curIssueId);
   });
@@ -6022,6 +6051,10 @@ var GCAL_COLORS = [
 // classMappings[]: { classroom, calId, calName, calColor, importOn, exportOn, assignee, gcalColor }
 // ※ 教室を軸にインポート・エクスポートを管理。カテゴリ軸は廃止。
 var _gcalSettings = { classMappings: [], daysAhead: 30 };
+// 2026-08-21：Gカレ設定の読み込みに失敗したかどうか。
+// 失敗すると _gcalSettings が空のまま残り、その状態で保存を押すと全教室のマッピングが消えるため、
+// 保存側で必ずこのフラグを見る。
+var _gcalSettingsLoadFailed = false;
 var _gcalCalendars = []; // カレンダー一覧キャッシュ
 
 // ---- 設定ロード（GASから取得） ----
@@ -6047,9 +6080,15 @@ function loadGcalSettings(callback) {
         });
         _gcalSettings.daysAhead = d.daysAhead || 30;
       }
+      _gcalSettingsLoadFailed = false;
       if (callback) callback();
     })
-    .catch(function(){ if (callback) callback(); });
+    .catch(function(){
+      // 2026-08-21：黙って握り潰さない。空のまま保存されると全教室分が消える。
+      _gcalSettingsLoadFailed = true;
+      toast('⚠️ Gカレ設定の読み込みに失敗しました。設定を保存しないでください');
+      if (callback) callback();
+    });
 }
 
 // ---- 設定保存（GASへPOST） ----
@@ -6077,8 +6116,26 @@ function saveGcalSettings(btn) {
     });
   });
 
-  var saveParams = new URLSearchParams({ action: 'saveGcalSettings', data: JSON.stringify(_gcalSettings) });
-  fetch(gasUrl + '?' + saveParams.toString(), { redirect: 'follow' })
+  // 2026-08-21：空の設定で全教室のマッピングを消す事故を止める。
+  // 画面の .gcal-class-row は「カレンダー一覧を取得」を押したあとにしか描画されないので、
+  // 一覧を取らずに保存を押すと classMappings が [] のまま送られ、
+  // GAS側の clearContents() で全教室分が消えていた。1台でも起きる。
+  if (!_gcalSettings.classMappings.length) {
+    toast('❌ 先に「カレンダー一覧を取得」を押してください（空の設定で上書きするのを止めました）');
+    if (_restore) _restore();
+    return;
+  }
+  if (_gcalSettingsLoadFailed) {
+    toast('❌ 設定の読み込みに失敗しています。ページを再読み込みしてから保存してください');
+    if (_restore) _restore();
+    return;
+  }
+  // 2026-08-21：GET書き込みをやめてPOSTにする。
+  // saveGcalSettings は全置換なので冪等＝gasPostRetry と同じ再送があっても二重登録しない。
+  var gfd = new FormData();
+  gfd.append('action', 'saveGcalSettings');
+  gfd.append('data', JSON.stringify(_gcalSettings));
+  fetch(gasUrl, { method: 'POST', body: gfd, redirect: 'follow' })
   .then(function(r){ return r.text(); })
   .then(function(text){
     var d = JSON.parse(text);
@@ -6219,7 +6276,7 @@ function importFromGcal(btn) {
   var _restore = btnBusy(btn);
 
   var days = parseInt((document.getElementById('cfgGcalDays')||{}).value||'30',10)||30;
-  var added = 0, skipped = 0;
+  var added = 0, skipped = 0, addedIds = [];
   var existingGcalIds = _tasks.map(function(t){ return t.gcalEventId; }).filter(Boolean);
 
   var promises = importMappings.map(function(m){
@@ -6250,6 +6307,7 @@ function importFromGcal(btn) {
             updatedAt:   new Date().toISOString()
           };
           _tasks.push(newTask);
+          addedIds.push(newTask.id);
           existingGcalIds.push(ev.gcalEventId);
           added++;
         });
@@ -6261,9 +6319,15 @@ function importFromGcal(btn) {
     renderTaskView(_activeView||'all');
     var msg = '✅ ' + added + '件取り込み';
     if (skipped > 0) msg += '（' + skipped + '件重複スキップ）';
-    if (statusEl) statusEl.textContent = msg;
-    toast(msg);
-    if (_restore) _restore();
+    // 2026-08-21 修正：取り込んだタスクを pushTaskToGas で送っていなかったため、
+    // syncFromGas の「ローカルにしか無く作成から1分経過したタスクは削除済みとみなす」判定で
+    // 取り込み直後に消えていた。件数が多くなりうるので直列で送る。
+    if (statusEl) statusEl.textContent = addedIds.length ? (msg + ' → GASに保存中...') : msg;
+    gasSequential(addedIds.map(function(tid){ return function(next){ pushTaskToGas(tid, next); }; }), function(){
+      if (statusEl) statusEl.textContent = msg;
+      toast(msg);
+      if (_restore) _restore();
+    });
   }).catch(function(err){
     if (statusEl) statusEl.textContent = '❌ 取り込み失敗: ' + err;
     if (_restore) _restore();
@@ -7019,6 +7083,20 @@ function gasPostRetry(fd, label, opts){
       }
     });
 }
+// 複数件をGASへ送るときは必ず順番に送る（2026-08-21）
+// 同時に投げるとGAS側LockServiceの取り合いになり、遅い方が10秒待ちでタイムアウトして
+// 「他のユーザーが書き込み中です」になる（gas-html-checklist 禁止パターンA）。
+// jobs は function(next){...} の配列。各jobは終わったら next() を呼ぶ。
+function gasSequential(jobs, done){
+  var list=(jobs||[]).slice();
+  (function step(){
+    if(!list.length){ if(done) try{ done(); }catch(e){} return; }
+    var j=list.shift();
+    var moved=false;
+    function next(){ if(moved) return; moved=true; step(); }
+    try{ j(next); }catch(e){ console.warn('[GAS] 直列送信でエラー', e); next(); }
+  })();
+}
 // FormDataはbody送信で消費されるためリトライ用に複製する
 function cloneFormData(fd){
   var n=new FormData();
@@ -7026,20 +7104,20 @@ function cloneFormData(fd){
   return n;
 }
 
-function pushIssueToGas(id){
-  if(!_settings.gasUrl) return;
-  var i=_issues.find(function(x){return x.id===id;}); if(!i) return;
+function pushIssueToGas(id, done){
+  if(!_settings.gasUrl){ if(done) done(); return; }
+  var i=_issues.find(function(x){return x.id===id;}); if(!i){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','saveIssue'); fd.append('issue',JSON.stringify(i));
-  gasPostRetry(fd, '課題の保存');
+  gasPostRetry(fd, '課題の保存', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
 }
 function deleteIssueFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteIssue'); fd.append('id',id);
   gasPostRetry(fd, '課題の削除');
 }
-function pushTaskToGas(id){
-  if(!_settings.gasUrl) return;
-  var t=_tasks.find(function(x){return x.id===id;}); if(!t) return;
+function pushTaskToGas(id, done){
+  if(!_settings.gasUrl){ if(done) done(); return; }
+  var t=_tasks.find(function(x){return x.id===id;}); if(!t){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','saveTask'); fd.append('task',JSON.stringify(t));
   // 完全一本化(2026-06-14 川上さん指示)：GカレはGAS側saveTaskが自動同期する。
   // レスポンスのgcalEventId/gcalCalIdを_tasks・localStorageに書き戻して二重登録を防ぐ。
@@ -7052,30 +7130,31 @@ function pushTaskToGas(id){
       if((cur.gcalCalId||'')!==(d.gcalCalId||'')){ cur.gcalCalId=d.gcalCalId||''; changed=true; }
       if(changed){ saveLocal(); if(typeof renderAllViews==='function') renderAllViews(); }
     }
-  }, onFinalFail: function(){ _unsavedTaskIds.add(id); } });
+    if(done) done();
+  }, onFinalFail: function(){ _unsavedTaskIds.add(id); if(done) done(); } });
 }
-function deleteTaskFromGas(id){
-  if(!_settings.gasUrl) return;
+function deleteTaskFromGas(id, done){
+  if(!_settings.gasUrl){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','deleteTask'); fd.append('id',id);
-  gasPostRetry(fd, 'タスクの削除');
+  gasPostRetry(fd, 'タスクの削除', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
 }
 
-function pushProjectToGas(id){
-  if(!_settings.gasUrl) return;
-  var p=_projects.find(function(x){return x.id===id;}); if(!p) return;
+function pushProjectToGas(id, done){
+  if(!_settings.gasUrl){ if(done) done(); return; }
+  var p=_projects.find(function(x){return x.id===id;}); if(!p){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','saveProject'); fd.append('project',JSON.stringify(p));
-  gasPostRetry(fd, 'プロジェクトの保存');
+  gasPostRetry(fd, 'プロジェクトの保存', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
 }
 function deleteProjectFromGas(id){
   if(!_settings.gasUrl) return;
   var fd=new FormData(); fd.append('action','deleteProject'); fd.append('id',id);
   gasPostRetry(fd, 'プロジェクトの削除');
 }
-function pushPItemToGas(id){
-  if(!_settings.gasUrl) return;
-  var it=_pitems.find(function(x){return x.id===id;}); if(!it) return;
+function pushPItemToGas(id, done){
+  if(!_settings.gasUrl){ if(done) done(); return; }
+  var it=_pitems.find(function(x){return x.id===id;}); if(!it){ if(done) done(); return; }
   var fd=new FormData(); fd.append('action','savePItem'); fd.append('item',JSON.stringify(it));
-  gasPostRetry(fd, 'プロジェクトタスクの保存');
+  gasPostRetry(fd, 'プロジェクトタスクの保存', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
 }
 function deletePItemFromGas(id){
   if(!_settings.gasUrl) return;
@@ -8172,8 +8251,15 @@ var _projNoteSaveTimer={};
 function saveProjNote(projId){
   var el=document.getElementById('pnote-'+projId); if(!el) return;
   var p=_projects.find(function(x){return x.id===projId;}); if(!p) return;
-  p.note=el.innerHTML;
+  // 2026-08-21 修正：変更が無いときは送らない。
+  // beforeunload から無条件に呼ばれていたうえ、_projNoteSaveTimer のキーが消えなかったため、
+  // メモ欄を一度でも触った端末はタブを閉じるたびにプロジェクト全体
+  // （memos・logs を含む）を送り直し、他の人の議論メモを巻き戻す経路になっていた。
+  var _v=el.innerHTML;
+  if(_v===(p.note||'')){ try{ delete _projNoteSaveTimer[projId]; }catch(e){} return; }
+  p.note=_v;
   p.updatedAt=new Date().toISOString();
+  try{ delete _projNoteSaveTimer[projId]; }catch(e){}
   saveLocal(); pushProjectToGas(projId);
   var saved=document.getElementById('pnote-saved-'+projId);
   if(saved){ saved.textContent='保存しました'; setTimeout(function(){ saved.textContent=''; },2000); }
