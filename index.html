@@ -6968,6 +6968,12 @@ function syncFromGas(){
             // 2026-08-26：保存が届いていないフリーメモは、サーバーに値があってもローカルを守る。
             // これが無いと、保存に失敗したまま同期すると書いた内容が画面から消える。
             if(_unsavedProjectIds.has(gp.id)&&local.note) gp.note=local.note;
+            // 2026-08-30：getAll は本番で30〜60秒かかる。返ってきた内容が自分の保存より古いとき・
+            // 入力中のとき・送信中のとき・画面に未保存の変更があるときは、ローカルのまま残す。
+            // これが無いと、保存した直後の同期で書いたばかりの内容が画面から消える。
+            if(local.note!=null&&(_projNoteInflight[gp.id]||_projNotePending[gp.id]
+               ||noteIsFocused(gp.id)||noteHasLocalEdit(gp.id)
+               ||noteRespIsStale(gp.id, gp.updatedAt))) gp.note=local.note;
             if(local.memos&&local.memos.length&&!(gp.memos&&gp.memos.length)) gp.memos=local.memos;
             if(local.logs&&local.logs.length&&!(gp.logs&&gp.logs.length)) gp.logs=local.logs;
             if(local.snippets&&local.snippets.length&&!(gp.snippets&&gp.snippets.length)) gp.snippets=local.snippets;
@@ -7102,9 +7108,18 @@ function syncFromGas(){
         // 他の人の書き込みがリロードするまで出てこなかった。
         if(_activeProjectId) renderProjectDetail(_activeProjectId);
       }
-      // 未保存が無いプロジェクトは、編集の出発点をサーバーの内容に合わせ直す
+      // 未保存が無いプロジェクトは、編集の出発点をサーバーの内容に合わせ直す。
+      // 2026-08-30：入力中・送信中・未保存・画面に未保存の変更があるとき・
+      // 応答が自分の保存より古いときは触らない。getAll は本番で30〜60秒かかるため、
+      // ここで古い内容に合わせ直すと、次の保存が必ず衝突して巻き戻って見えていた。
       _projects.forEach(function(pp){
-        if(!_unsavedProjectIds.has(pp.id)) _projNoteBase[pp.id]=pp.note||'';
+        if(_unsavedProjectIds.has(pp.id)) return;
+        if(_projNoteInflight[pp.id]||_projNotePending[pp.id]) return;
+        if(noteIsFocused(pp.id)) return;
+        if(noteHasLocalEdit(pp.id)) return;
+        if(noteRespIsStale(pp.id, pp.updatedAt)) return;
+        _projNoteBase[pp.id]=pp.note||'';
+        _projNoteServer[pp.id]=pp.note||'';
       });
       if(el){
         if(_unsavedFailCount>0){ updateSyncStatusUnsaved(); } // 未保存があれば警告を優先表示
@@ -8074,7 +8089,7 @@ function renderProjectDetail(id){
             +'<span class="project-note-saved" id="pnote-saved-'+id+'" style="font-size:11px;color:var(--text-light);margin-left:4px;"></span>'
             +'<button class="btn-primary" style="font-size:11px;margin-left:auto;" onmousedown="event.preventDefault();" onclick="saveProjNote(\''+id+'\',true)" >保存</button>'
           +'</div>'
-          +'<div class="rich-editor" id="pnote-'+id+'" contenteditable="true" onblur="saveProjNote(\''+id+'\')" onpaste="rtePaste(event,\''+id+'\')" data-placeholder="やることの洗い出し・検討事項・方針メモなど自由に。">'+noteText+'</div>'
+          +'<div class="rich-editor" id="pnote-'+id+'" contenteditable="true" onpaste="rtePaste(event,\''+id+'\')" data-placeholder="やることの洗い出し・検討事項・方針メモなど自由に。">'+noteText+'</div>'
         +'</div>'
         +'<div class="project-pane-body" id="pbody-log-'+id+'">'
           +'<div class="project-log-input-area">'
@@ -8129,6 +8144,8 @@ function renderProjectDetail(id){
     noteEl.addEventListener('focus',function(){ refreshProjNote(id); });
     // 編集の出発点。サーバーと一致していると分かっている版だけを入れる（初回のみ）。
     if(_projNoteBase[id]===undefined) _projNoteBase[id]=p.note||'';
+    // サーバーの現在値として分かっている版（照合に送る base）。ずれていても衝突時に取り直す。
+    if(_projNoteServer[id]===undefined) _projNoteServer[id]=_projNoteBase[id];
     rebindToggle(id);
     if(typeof histSeed==='function'){ histSeed(noteEl); attachRichHistory(noteEl); }
   }
@@ -8727,80 +8744,196 @@ function noteInsertAfter(out, after, v, baseSet){
   out.splice(pos,0,v);
 }
 
-// フリーメモをGASに保存する。conflict が返ったら3者マージして送り直す。
-function pushProjectNote(projId, html, tryLeft){
+// ===== 送信状態（2026-08-30 追加）=====
+// それまで _projNoteBase 1つで「サーバーの現在値」と「自分の画面の枝分かれ元」を兼ねていた。
+// 保存の応答が返る前に次の保存が飛ぶと、送る base が保存前のままになるため、
+// 他の人が誰も書いていなくても conflict になっていた（自分ひとりの入力で巻き戻る原因）。
+// ここを2つに分け、送信は1プロジェクトにつき1本に直列化する。
+var _projNoteServer={};    // projId → サーバーの現在値として分かっている版（照合に送る base）
+var _projNoteInflight={};  // projId → 送信中
+var _projNotePending={};   // projId → 送信中に保存を頼まれた（返ってきたらもう一度送る）
+var _projNoteSavedAt={};   // projId → 保存が成功したときの updatedAt（古い応答を捨てる判定に使う）
+
+function noteEditorHtml(projId){
+  var el=document.getElementById('pnote-'+projId);
+  if(el) return el.innerHTML;
+  var p=_projects.find(function(x){return x.id===projId;});
+  return (p&&p.note)||'';
+}
+function noteIsFocused(projId){
+  var el=document.getElementById('pnote-'+projId);
+  return !!(el&&document.activeElement===el);
+}
+// 画面に未保存の変更があるか（＝出発点と画面がずれているか）
+function noteHasLocalEdit(projId){
+  var el=document.getElementById('pnote-'+projId); if(!el) return false;
+  var b=_projNoteBase[projId];
+  return (b!=null&&el.innerHTML!==b);
+}
+// 受け取った応答が、自分の最後の保存より古いか。
+// getAll は本番で30〜60秒かかるため、返ってきたときには自分の保存の方が新しいことがある。
+function noteRespIsStale(projId, svUpdatedAt){
+  var my=Date.parse(_projNoteSavedAt[projId]||'')||0;
+  if(!my) return false;
+  var sv=Date.parse(svUpdatedAt||'')||0;
+  return (!sv||sv<my);
+}
+// 知らせはメモ欄の右上に小さく出す（画面中央のトーストは使わない。2026-08-30）
+function noteFlash(projId,msg){
+  var saved=document.getElementById('pnote-saved-'+projId); if(!saved) return;
+  saved.textContent=msg;
+  clearTimeout(_projNoteMsgTimer[projId]);
+  _projNoteMsgTimer[projId]=setTimeout(function(){ saved.textContent=''; },3000);
+}
+
+// フリーメモをGASに保存する。
+// ・送信は常に1本。送信中に呼ばれたら保留にして、返ってきてから1回だけ送り直す。
+// ・送る中身は呼ばれた時点のスナップショットではなく「今この瞬間のメモ欄」。
+//   （スナップショットで送ると、送信後に打った文字が合体の結果で消える＝巻き戻って見える）
+// ・照合に送る base は _projNoteServer。合体の元にするのは _projNoteBase。
+function pushProjectNote(projId, _unusedHtml, tryLeft){
   if(!_settings.gasUrl) return;
   tryLeft=(tryLeft==null?3:tryLeft);
-  var base=(_projNoteBase[projId]!=null?_projNoteBase[projId]:'');
+  if(_projNoteInflight[projId]){ _projNotePending[projId]=true; return; }
+  var live=noteEditorHtml(projId);
+  var diffBase=(_projNoteBase[projId]!=null?_projNoteBase[projId]:'');
+  var server=(_projNoteServer[projId]!=null?_projNoteServer[projId]:diffBase);
+  // サーバーが先に進んでいると分かっているときは、送る前に合体しておく
+  var payload=(server===diffBase)?live:mergeNoteHtml(diffBase,live,server);
+  if(payload===server){ noteAdoptServer(projId,server); return; }
+  _projNoteInflight[projId]=true;
+  _projNotePending[projId]=false;
   var fd=new FormData();
   fd.append('action','updateProjectNote');
   fd.append('id',projId);
-  fd.append('note',html);
-  fd.append('base',base);
+  fd.append('note',payload);
+  fd.append('base',server);
   // keepalive：タブを閉じるとき（beforeunload）に呼ばれても送信が中断されないようにする。
   // 64KBを超えると使えないので、長いメモのときは付けない。
-  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow',keepalive:(String(html||'').length<50000)})
+  fetch(_settings.gasUrl,{method:'POST',body:fd,redirect:'follow',keepalive:(String(payload||'').length<50000)})
     .then(function(r){ return r.json(); })
     .then(function(d){
+      _projNoteInflight[projId]=false;
       if(d&&d.success){
-        var p=_projects.find(function(x){return x.id===projId;});
-        if(p){ p.note=d.note; if(d.updatedAt) p.updatedAt=d.updatedAt; }
-        _projNoteBase[projId]=d.note;
+        _projNoteServer[projId]=d.note;
+        if(d.updatedAt) _projNoteSavedAt[projId]=d.updatedAt;
+        var pp=_projects.find(function(x){return x.id===projId;});
+        var now=noteEditorHtml(projId);
+        if(!noteIsFocused(projId)&&now===live){
+          // 入力していない＝そのまま画面に入れてよい
+          if(payload!==live){ applyProjNoteToScreen(projId,payload); noteFlash(projId,'他の人の書き込みを取り込みました'); }
+          _projNoteBase[projId]=payload;
+          if(pp){ pp.note=payload; if(d.updatedAt) pp.updatedAt=d.updatedAt; }
+        } else if(now===payload){
+          // 画面と同じものが入った
+          _projNoteBase[projId]=payload;
+          if(pp){ pp.note=payload; if(d.updatedAt) pp.updatedAt=d.updatedAt; }
+        }
+        // 入力中で画面が先に進んでいるときは、画面も出発点も触らない。
+        // 次の保存で、いまの出発点との差分として送られる。
         resolveUnsaved(_unsavedProjectIds, projId);
         saveLocal();
+        if(_projNotePending[projId]){
+          _projNotePending[projId]=false;
+          setTimeout(function(){ pushProjectNote(projId,null,3); },0);
+        }
         return;
       }
       if(d&&d.conflict){
-        if(tryLeft<=1) throw new Error('conflict');
-        // 他の人が書き足していた。どちらも消えないようにマージしてから送り直す
-        var merged=mergeNoteHtml(base, html, d.note||'');
-        _projNoteBase[projId]=d.note||'';
-        var p2=_projects.find(function(x){return x.id===projId;});
-        if(p2) p2.note=merged;
-        applyProjNoteToScreen(projId, merged);
-        toast('ℹ️ 他の人の書き込みがあったので、両方を残しました');
-        pushProjectNote(projId, merged, tryLeft-1);
-        return;
+        // 他の人が書き足していた。サーバーの現在値を覚えて、その上に自分の分を載せ直して送る
+        _projNoteServer[projId]=(d.note||'');
+        if(tryLeft>1){ setTimeout(function(){ pushProjectNote(projId,null,tryLeft-1); },300); return; }
+        throw new Error('conflict');
       }
       throw new Error((d&&d.error)||'failed');
     })
     .catch(function(){
-      if(tryLeft>1){ setTimeout(function(){ pushProjectNote(projId, html, tryLeft-1); },2500); return; }
+      _projNoteInflight[projId]=false;
+      if(tryLeft>1){ setTimeout(function(){ pushProjectNote(projId,null,tryLeft-1); },2500); return; }
       _unsavedProjectIds.add(projId);
       if(typeof updateSyncStatusUnsaved==='function') updateSyncStatusUnsaved();
-      toast('⚠️ フリーメモを保存できませんでした（この端末には残っています）');
+      noteFlash(projId,'⚠️ 保存できませんでした（この端末には残っています）');
     });
 }
 
-// メモ欄の中身を差し替える。入力中でも中身は失われない（マージ結果に自分の分も入っている）ので、
-// カーソルだけ末尾に寄せて差し替える。
+// 送るものが無い＝サーバーの内容が自分の画面の分をすでに含んでいる。
+// 入力中でなければ、その内容を画面に入れて出発点を合わせ直す。
+function noteAdoptServer(projId, server){
+  if(noteIsFocused(projId)) return;
+  var el=document.getElementById('pnote-'+projId);
+  if(el&&el.innerHTML!==server){
+    applyProjNoteToScreen(projId, server);
+    var p=_projects.find(function(x){return x.id===projId;});
+    if(p) p.note=server;
+    saveLocal();
+    noteFlash(projId,'他の人の書き込みを取り込みました');
+  }
+  _projNoteBase[projId]=server;
+}
+
+// カーソル位置を「先頭から何文字目か」で覚えて、書き換えた後に戻す。
+// 末尾に飛ばすと、途中を直している最中に位置を見失う。
+function noteCaretOffset(el){
+  try{
+    var sel=window.getSelection(); if(!sel||!sel.rangeCount) return -1;
+    var r=sel.getRangeAt(0); if(!el.contains(r.startContainer)) return -1;
+    var pre=document.createRange(); pre.selectNodeContents(el); pre.setEnd(r.startContainer,r.startOffset);
+    return pre.toString().length;
+  }catch(e){ return -1; }
+}
+function noteSetCaret(el,off){
+  try{
+    var sel=window.getSelection();
+    if(off>=0){
+      var walk=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,null,false),n,acc=0;
+      while((n=walk.nextNode())){
+        var len=n.textContent.length;
+        if(acc+len>=off){
+          var r=document.createRange(); r.setStart(n,off-acc); r.collapse(true);
+          sel.removeAllRanges(); sel.addRange(r); return;
+        }
+        acc+=len;
+      }
+    }
+    var r2=document.createRange(); r2.selectNodeContents(el); r2.collapse(false);
+    sel.removeAllRanges(); sel.addRange(r2);
+  }catch(e){}
+}
+
+// メモ欄の中身を差し替える。カーソルが入っているときは位置を保つ。
 function applyProjNoteToScreen(projId, html){
   var el=document.getElementById('pnote-'+projId);
   if(!el||el.innerHTML===html) return;
   var focused=(document.activeElement===el);
+  var off=focused?noteCaretOffset(el):-1;
   el.innerHTML=html;
   if(typeof histSeed==='function') histSeed(el);
-  if(focused){
-    try{
-      var r=document.createRange(); r.selectNodeContents(el); r.collapse(false);
-      var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    }catch(e){}
-  }
+  if(typeof rebindToggle==='function') rebindToggle(projId);
+  if(focused) noteSetCaret(el,off);
 }
 
 // メモ欄にカーソルを入れたときに、その1プロジェクトだけ最新を取りに行く。
 // getAll は全データを返すので本番では30〜60秒かかる。ここは getProject（1件）を使う。
+// 2026-08-30：保存の最中・未保存があるときは画面に触らない。
+// （保存が届く前の古い内容が返ってきて、書いたばかりの内容を巻き戻していた）
 function refreshProjNote(projId){
   if(!_settings.gasUrl) return;
   var el=document.getElementById('pnote-'+projId); if(!el) return;
+  if(_projNoteInflight[projId]||_projNotePending[projId]) return;
+  if(_unsavedProjectIds.has(projId)) return;
+  if(noteHasLocalEdit(projId)) return;
   var seen=el.innerHTML;
   fetch(_settings.gasUrl+'?action=getProject&id='+encodeURIComponent(projId)+'&cb='+Date.now())
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(!d||!d.success||!d.project) return;
+      // 自分の保存より古い応答は捨てる
+      if(noteRespIsStale(projId, d.project.updatedAt)) return;
       var sv=d.project.note||'';
       var el2=document.getElementById('pnote-'+projId); if(!el2) return;
-      // 取りに行っている間に打ち始めていたら画面は触らない（保存時のマージに任せる）
+      _projNoteServer[projId]=sv;
+      // 取りに行っている間に保存が始まった／打ち始めたら画面は触らない（保存時の合体に任せる）
+      if(_projNoteInflight[projId]||_projNotePending[projId]) return;
       if(el2.innerHTML!==seen) return;
       if(sv===seen){ _projNoteBase[projId]=sv; return; }
       var p=_projects.find(function(x){return x.id===projId;});
@@ -8808,7 +8941,7 @@ function refreshProjNote(projId){
       _projNoteBase[projId]=sv;
       applyProjNoteToScreen(projId, sv);
       saveLocal();
-      toast('ℹ️ 他の人の書き込みを読み込みました');
+      noteFlash(projId,'他の人の書き込みを読み込みました');
     })
     .catch(function(){});
 }
@@ -8822,30 +8955,27 @@ var _projNoteMsgTimer={};   // 「保存しました」表示を消すタイマ�
 function saveProjNote(projId, manual){
   var el=document.getElementById('pnote-'+projId); if(!el) return;
   var p=_projects.find(function(x){return x.id===projId;}); if(!p) return;
-  function flash(msg){
-    var saved=document.getElementById('pnote-saved-'+projId); if(!saved) return;
-    saved.textContent=msg;
-    clearTimeout(_projNoteMsgTimer[projId]);
-    _projNoteMsgTimer[projId]=setTimeout(function(){ saved.textContent=''; },2000);
-  }
-  // 変更が無いときはGASに送らない。
-  // beforeunload から無条件に呼ばれていたうえ、_projNoteSaveTimer のキーが消えなかったため、
-  // メモ欄を一度でも触った端末はタブを閉じるたびにプロジェクト全体
-  // （memos・logs を含む）を送り直し、他の人の議論メモを巻き戻す経路になっていた。
   var _v=el.innerHTML;
-  if(_v===(p.note||'')){
-    try{ delete _projNoteSaveTimer[projId]; }catch(e){}
-    if(manual) flash('保存済みです');
+  var b=(_projNoteBase[projId]!=null?_projNoteBase[projId]:(p.note||''));
+  var server=(_projNoteServer[projId]!=null?_projNoteServer[projId]:b);
+  try{ delete _projNoteSaveTimer[projId]; }catch(e){}
+  // 送るものが無いとき（画面＝出発点＝サーバー、未保存も無い）はGASに送らない。
+  // 2026-08-30：この判定を p.note との比較から、出発点とサーバーの一致に変えた。
+  // p.note と比べていたため、送信中に打った分が「変更なし」と判定されて送られないことがあった。
+  if(_v===b && b===server && !_unsavedProjectIds.has(projId)){
+    if(manual) noteFlash(projId,'保存済みです');
     return;
   }
-  p.note=_v;
-  p.updatedAt=new Date().toISOString();
-  try{ delete _projNoteSaveTimer[projId]; }catch(e){}
-  saveLocal();
-  // 2026-08-26：レコード全体を送る pushProjectToGas から、フリーメモだけを送る
-  // pushProjectNote に変更。base と照合するので、他の人の書き込みを巻き戻さない。
-  pushProjectNote(projId, _v);
-  flash('保存しました');
+  if(_v!==b){
+    p.note=_v;
+    p.updatedAt=new Date().toISOString();
+    saveLocal();
+  }
+  // レコード全体を送る pushProjectToGas ではなく、フリーメモだけを送る pushProjectNote。
+  // base と照合するので、他の人の書き込みを巻き戻さない。
+  pushProjectNote(projId);
+  if(_v!==b) noteFlash(projId,'保存しました');
+  else if(manual) noteFlash(projId,'保存済みです');
 }
 // ===== リッチエディタ =====
 function rteExec(projId, cmd){
@@ -8976,10 +9106,12 @@ function rebindToggle(projId){
   });
 }
 
-// 自動保存（800ms debounce）
+// 自動保存（2500ms debounce）
+// 2026-08-30：GASの往復が数秒かかるため800msだと保存が重なりやすい。2.5秒に伸ばした。
+// カーソルを外したとき・［保存］ボタン・Ctrl+S は今までどおり即時に保存する。
 function autosaveProjNote(projId){
   clearTimeout(_projNoteSaveTimer[projId]);
-  _projNoteSaveTimer[projId]=setTimeout(function(){ saveProjNote(projId); },800);
+  _projNoteSaveTimer[projId]=setTimeout(function(){ saveProjNote(projId); },2500);
 }
 
 // ---- 作業履歴 ----
