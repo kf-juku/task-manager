@@ -8860,6 +8860,14 @@ function noteRespIsStale(projId, svUpdatedAt){
   return (!sv||sv<my);
 }
 // 知らせはメモ欄の右上に小さく出す（画面中央のトーストは使わない。2026-08-30）
+// 2026-09-07：出しっぱなしにした失敗の知らせを消す。
+// keep:true で出した「⚠ 保存できていません」は3秒タイマーを付けていないので、
+// 保存が通ったときにここで明示的に消さないと、成功しても赤いまま残る。
+function noteFlashClear(projId){
+  var saved=document.getElementById('pnote-saved-'+projId); if(!saved) return;
+  clearTimeout(_projNoteMsgTimer[projId]);
+  saved.textContent=''; saved.style.color=''; saved.style.fontWeight='';
+}
 function noteFlash(projId,msg,keep){
   var saved=document.getElementById('pnote-saved-'+projId); if(!saved) return;
   saved.textContent=msg;
@@ -8993,6 +9001,7 @@ function pushProjectNote(projId, _unusedHtml, tryLeft){
         resolveUnsaved(_unsavedProjectIds, projId);
         clearProjNoteUnsaved(projId);   // 2026-09-07：持ち越しも消す
         _projNoteOkAt[projId]=fmtHM();
+        noteFlashClear(projId);        // 2026-09-07：赤い「保存できていません」を消す
         updateNoteState(projId);
         saveLocal();
         if(_projNotePending[projId]){
