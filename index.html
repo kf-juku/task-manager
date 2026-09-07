@@ -1971,6 +1971,7 @@ window.onload=function(){
     }
   } catch(e){}
   loadLocal();
+  restoreProjNoteUnsaved();   // 2026-09-07：保存が通らなかったフリーメモを読み戻す
   buildUI();
   if(_settings.gasUrl){
     // Gカレ設定を先に取得してから同期（設定がないとGカレ自動登録が動かないため）
@@ -6960,6 +6961,11 @@ function syncFromGas(){
       }
       if(d.customViews) mergeCvsFromGas(d.customViews);
       if(d.projects){
+        // 2026-09-07：サーバーが返した note と updatedAt を、ローカル保護で書き換わる前に控える。
+        // 下の「出発点の付け替え」はこの控えを使う。_projects 側は保護でローカル値に化けることがあり、
+        // それを「サーバーの現在値」として扱うと照合が狂う。
+        var srvNote={}, srvUp={};
+        d.projects.forEach(function(gp){ srvNote[gp.id]=gp.note||''; srvUp[gp.id]=gp.updatedAt||''; });
         // note/memos/logs/snippetsはGASに未保存の場合はローカルを優先
         d.projects.forEach(function(gp){
           var local=_projects.find(function(x){return x.id===gp.id;});
@@ -7092,6 +7098,8 @@ function syncFromGas(){
       saveLocal();
       // 2026-08-21：同期のたびに未送信キューを送り直す
       drainRetryQueue();
+      // 2026-09-07：保存が通らなかったフリーメモも送り直す
+      retryUnsavedProjNotes();
       // 一括選択中は再描画しない（チェック状態が消えるため）
       var inBulk = _bulkSelected.size>0 || _bulkSelectedIssue.size>0 || _bulkSelectedPtask.size>0;
       // インライン編集中も再描画しない（書きかけのタイトル・メモが消えるため。2026-06-11 GAS連携監査対応）
@@ -7112,18 +7120,45 @@ function syncFromGas(){
       // 2026-08-30：入力中・送信中・未保存・画面に未保存の変更があるとき・
       // 応答が自分の保存より古いときは触らない。getAll は本番で30〜60秒かかるため、
       // ここで古い内容に合わせ直すと、次の保存が必ず衝突して巻き戻って見えていた。
+      // 2026-09-07：ここは以前、上の再描画（inBulk・editingInline のときスキップされる）と
+      // 切り離されて必ず走っていた。画面のメモ欄が古いままなのに出発点だけサーバーの新しい内容に
+      // 付け替わり、次の保存で「他の人が書いた分を人が消した」と判定されて、衝突も警告も出さずに
+      // 巻き戻していた。出発点は、メモ欄が実際にその内容を表示できたときだけ動かす。
       _projects.forEach(function(pp){
+        if(!(pp.id in srvNote)) return;                      // サーバーに無い＝ローカルだけのプロジェクト
         if(_unsavedProjectIds.has(pp.id)) return;
         if(_projNoteInflight[pp.id]||_projNotePending[pp.id]) return;
-        if(noteIsFocused(pp.id)) return;
-        if(noteHasLocalEdit(pp.id)) return;
-        if(noteRespIsStale(pp.id, pp.updatedAt)) return;
-        _projNoteBase[pp.id]=pp.note||'';
-        _projNoteServer[pp.id]=pp.note||'';
+        if(noteRespIsStale(pp.id, srvUp[pp.id])) return;
+        var sv=srvNote[pp.id];
+        if(!sv&&(pp.note||'')) return;                       // サーバーが空・ローカルに値あり＝ローカルを守る
+        // サーバーの現在値は画面の状態にかかわらず控えてよい（照合と合体の材料になる）
+        _projNoteServer[pp.id]=sv;
+        if(noteIsFocused(pp.id)) return;                     // 入力中は画面も出発点も触らない
+        if(noteHasLocalEdit(pp.id)) return;                  // 書きかけがある＝画面も出発点も触らない
+        var el=document.getElementById('pnote-'+pp.id);
+        // 再描画がスキップされていても、メモ欄だけは合わせる
+        if(el&&el.innerHTML!==sv) applyProjNoteToScreen(pp.id,sv);
+        if(el&&el.innerHTML!==sv) return;                    // 書き換えられなかったら出発点は動かさない
+        pp.note=sv;
+        _projNoteBase[pp.id]=sv;
       });
+      // 2026-09-07：メモ欄がサーバーと一致しているかを毎回数える。
+      // 「自分の画面では正常なのに、実はサーバーが違う」を本人が見つけられるようにするため。
+      _noteMismatch=[];
+      _projects.forEach(function(pp){
+        if(!(pp.id in srvNote)) return;
+        if(_projNoteInflight[pp.id]||_projNotePending[pp.id]||noteIsFocused(pp.id)) return;
+        if((pp.note||'')!==srvNote[pp.id]) _noteMismatch.push(pp.title||pp.id);
+      });
+      updateAllNoteStates();
       if(el){
         if(_unsavedFailCount>0){ updateSyncStatusUnsaved(); } // 未保存があれば警告を優先表示
-        else { el.textContent='最終同期：'+new Date().toLocaleTimeString('ja-JP'); el.style.color='var(--text-muted)'; }
+        else if(_noteMismatch.length){
+          // 2026-09-07：ずれているメモ欄があることを、色を付けて必ず出す
+          el.textContent='⚠ メモ欄がサーバーとずれています：'+_noteMismatch.join('・')+'（'+new Date().toLocaleTimeString('ja-JP')+' 確認）';
+          el.style.color='var(--danger,#d33)';
+        }
+        else { el.textContent='最終同期：'+new Date().toLocaleTimeString('ja-JP')+'／メモ欄'+_projects.length+'件すべてサーバーと一致'; el.style.color='var(--text-muted)'; }
       }
       // 同期ボタンを元に戻す
       _syncing = false;
@@ -7149,6 +7184,46 @@ var _unsavedTaskIds = new Set(); // 保存が最終失敗したタスクID（1�
 // 無条件に全置換しており、保存が届かなかったものは次の同期でローカルからも消えていた。
 var _unsavedProjectIds = new Set();
 var _unsavedPItemIds   = new Set();
+// ===== 未保存フリーメモの持ち越し（2026-09-07）=====
+// それまで _unsavedProjectIds はページを開き直すと空に戻っていた。
+// 保存が最後まで通らなかったメモは画面のデータにしか無いので、
+// 開き直した次の同期でサーバーの古い内容に上書きされ、跡形もなく消えていた。
+// 未保存のIDと、そのときの出発点(base)を残して、同期のたびに送り直す。
+var KPNU='tm_projnote_unsaved';
+function loadPNUnsaved(){ try{ return JSON.parse(localStorage.getItem(KPNU)||'{}')||{}; }catch(e){ return {}; } }
+function savePNUnsaved(o){ try{ localStorage.setItem(KPNU, JSON.stringify(o||{})); }catch(e){} }
+function markProjNoteUnsaved(projId){
+  var o=loadPNUnsaved();
+  if(!o[projId]){
+    o[projId]={ base:(_projNoteBase[projId]!=null?_projNoteBase[projId]:''), at:new Date().toISOString() };
+    savePNUnsaved(o);
+  }
+  if(!_unsavedProjectIds.has(projId)){ _unsavedProjectIds.add(projId); markUnsaved(); }
+  else if(typeof updateSyncStatusUnsaved==='function') updateSyncStatusUnsaved();
+}
+function clearProjNoteUnsaved(projId){
+  var o=loadPNUnsaved();
+  if(o[projId]){ delete o[projId]; savePNUnsaved(o); }
+}
+// 起動時：未保存のメモを読み戻して、同期のマージから守れる状態にする
+function restoreProjNoteUnsaved(){
+  var o=loadPNUnsaved();
+  Object.keys(o).forEach(function(id){
+    if(_projNoteBase[id]===undefined) _projNoteBase[id]=(o[id]&&o[id].base)||'';
+    if(!_unsavedProjectIds.has(id)){ _unsavedProjectIds.add(id); markUnsaved(); }
+  });
+}
+// 同期のたびに、未保存のメモを送り直す。
+// base 照合があるので衝突したらサーバーの現在値と合体してから送り直される（重複しない）。
+function retryUnsavedProjNotes(){
+  if(!_settings.gasUrl) return;
+  var o=loadPNUnsaved();
+  Object.keys(o).forEach(function(id){
+    var p=_projects.find(function(x){return x.id===id;});
+    if(!p){ clearProjNoteUnsaved(id); resolveUnsaved(_unsavedProjectIds,id); return; }  // 消されたプロジェクト
+    pushProjectNote(id);
+  });
+}
 // ===== 未送信キュー（2026-08-21）=====
 // 差分保存にしたことで「次の保存でまた全部送るから勝手に直る」という自己修復が無くなった。
 // 1回落ちたら落ちたきりになるので、失敗した差分だけを積んで後で送り直す。
@@ -8087,7 +8162,10 @@ function renderProjectDetail(id){
             +'<button class="rich-btn" onmousedown="event.preventDefault();rteExec(\''+id+'\',\'reset\')" title="装飾をすべてリセット" style="color:#9ca3af;">✕ リセット</button>'
             +'<span class="tt" style="margin-left:4px;"><span class="help-mark">?</span><span class="tt-body">💾 <b>自動保存について</b><br>フォーカスを外したとき（他の場所をクリックしたとき）に自動保存されます。入力中はCtrl+Zで何度でも取り消せます。</span></span>'
             +'<span class="project-note-saved" id="pnote-saved-'+id+'" style="font-size:11px;color:var(--text-light);margin-left:4px;"></span>'
-            +'<button class="btn-primary" style="font-size:11px;margin-left:auto;" onmousedown="event.preventDefault();" onclick="saveProjNote(\''+id+'\',true)" >保存</button>'
+            // 2026-09-07：この画面の内容がサーバーと同じかどうかを常時出す
+            +'<span class="project-note-state" id="pnote-state-'+id+'" style="font-size:11px;margin-left:6px;"></span>'
+            +'<button class="btn-secondary" style="font-size:11px;padding:4px 9px;margin-left:auto;" onmousedown="event.preventDefault();" onclick="verifyProjNote(\''+id+'\')" title="いまサーバーに入っている中身を取り直して、この画面と突き合わせます">🔍 サーバーと照合</button>'
+            +'<button class="btn-primary" style="font-size:11px;margin-left:6px;" onmousedown="event.preventDefault();" onclick="saveProjNote(\''+id+'\',true)" >保存</button>'
           +'</div>'
           +'<div class="rich-editor" id="pnote-'+id+'" contenteditable="true" onpaste="rtePaste(event,\''+id+'\')" data-placeholder="やることの洗い出し・検討事項・方針メモなど自由に。">'+noteText+'</div>'
         +'</div>'
@@ -8142,8 +8220,11 @@ function renderProjectDetail(id){
     // 2026-08-26：メモ欄にカーソルを入れたら、その1プロジェクトだけ最新を取りに行く。
     // 開きっぱなしの画面でも、書き始める直前に他の人の書き込みが入る。
     noteEl.addEventListener('focus',function(){ refreshProjNote(id); });
+    // 2026-09-07：打つたびに「サーバーと同じか」の表示を更新する
+    noteEl.addEventListener('input',function(){ updateNoteState(id); });
     // 編集の出発点。サーバーと一致していると分かっている版だけを入れる（初回のみ）。
     if(_projNoteBase[id]===undefined) _projNoteBase[id]=p.note||'';
+    updateNoteState(id);   // 2026-09-07
     // サーバーの現在値として分かっている版（照合に送る base）。ずれていても衝突時に取り直す。
     if(_projNoteServer[id]===undefined) _projNoteServer[id]=_projNoteBase[id];
     rebindToggle(id);
@@ -8779,11 +8860,88 @@ function noteRespIsStale(projId, svUpdatedAt){
   return (!sv||sv<my);
 }
 // 知らせはメモ欄の右上に小さく出す（画面中央のトーストは使わない。2026-08-30）
-function noteFlash(projId,msg){
+function noteFlash(projId,msg,keep){
   var saved=document.getElementById('pnote-saved-'+projId); if(!saved) return;
   saved.textContent=msg;
+  // 2026-09-07：失敗の知らせは赤・太字で、消さずに残す。灰色の小さい字では気づけなかった。
+  var bad=(String(msg).indexOf('\u26a0')>=0);
+  saved.style.color=bad?'var(--danger,#d33)':'';
+  saved.style.fontWeight=bad?'700':'';
   clearTimeout(_projNoteMsgTimer[projId]);
-  _projNoteMsgTimer[projId]=setTimeout(function(){ saved.textContent=''; },3000);
+  if(keep) return;
+  _projNoteMsgTimer[projId]=setTimeout(function(){ saved.textContent=''; saved.style.color=''; saved.style.fontWeight=''; },3000);
+}
+
+// ===== メモ欄が「いまサーバーにあるもの」と同じかを常時出す（2026-09-07）=====
+// 自分の画面では正常に見えるのに、実はサーバーに届いていない／後日ひらいたら古い内容に戻っている、
+// というのが本人の画面から分からないのが今回いちばん困った点だった。
+// 「この画面 ＝ サーバー」かどうかを、メモ欄のツールバーに常に出す。
+var _projNoteOkAt={};      // projId → 最後にサーバーと一致を確認した時刻（表示用）
+var _noteMismatch=[];      // 同期のたびに数える「サーバーとずれているプロジェクト名」
+function noteStateEl(projId){ return document.getElementById('pnote-state-'+projId); }
+function fmtHM(d){ d=d||new Date(); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
+function updateNoteState(projId){
+  var el=noteStateEl(projId); if(!el) return;
+  var live=noteEditorHtml(projId);
+  var sv=_projNoteServer[projId];
+  var t,c,bold=false;
+  if(_projNoteInflight[projId]||_projNotePending[projId]){ t='保存中…'; c='var(--text-light)'; }
+  else if(_unsavedProjectIds.has(projId)){ t='⚠ サーバーに届いていません（この端末にだけあります）'; c='var(--danger,#d33)'; bold=true; }
+  else if(sv==null){ t=''; c='var(--text-light)'; }
+  else if(live===sv){ t='✓ サーバーと同じ'+(_projNoteOkAt[projId]?'（'+_projNoteOkAt[projId]+' 確認）':''); c='#15803d'; }
+  else { t='● 未保存の変更があります'; c='#b45309'; }
+  el.textContent=t; el.style.color=c; el.style.fontWeight=bold?'700':'';
+}
+function updateAllNoteStates(){ try{ (_projects||[]).forEach(function(p){ updateNoteState(p.id); }); }catch(e){} }
+// ［🔍 サーバーと照合］：いまサーバーに入っている中身を取り直して、この画面と突き合わせる
+function verifyProjNote(projId){
+  var el=noteStateEl(projId);
+  if(el){ el.textContent='照合中…'; el.style.color='var(--text-light)'; el.style.fontWeight=''; }
+  if(!_settings.gasUrl){ if(el) el.textContent='GASのURLが設定されていません'; return; }
+  fetch(_settings.gasUrl+'?action=getProject&id='+encodeURIComponent(projId)+'&cb='+Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d||!d.success||!d.project) throw new Error('取得できません');
+      var sv=d.project.note||'';
+      _projNoteServer[projId]=sv;
+      var live=noteEditorHtml(projId);
+      if(live===sv){
+        _projNoteOkAt[projId]=fmtHM();
+        _projNoteBase[projId]=sv;
+        resolveUnsaved(_unsavedProjectIds, projId);
+        clearProjNoteUnsaved(projId);
+        updateNoteState(projId);
+        return;
+      }
+      showNoteDiffChoice(projId, sv, live);
+    })
+    .catch(function(){
+      if(el){ el.textContent='⚠ 照合できませんでした（通信）'; el.style.color='var(--danger,#d33)'; el.style.fontWeight='700'; }
+    });
+}
+// ずれていたとき：どちらを正にするかを、その場で選べるようにする
+function showNoteDiffChoice(projId, sv, live){
+  var el=noteStateEl(projId); if(!el) return;
+  el.textContent=''; el.style.fontWeight='';
+  var s=document.createElement('span');
+  s.textContent='⚠ サーバーと中身が違います（この画面 '+live.length+'字 ／ サーバー '+sv.length+'字）　';
+  s.style.color='var(--danger,#d33)'; s.style.fontWeight='700';
+  var b1=document.createElement('button');
+  b1.textContent='この端末を正にする（送る）'; b1.className='btn-primary';
+  b1.style.fontSize='11px'; b1.style.padding='3px 8px'; b1.style.marginRight='4px';
+  b1.onclick=function(){ pushProjectNote(projId); updateNoteState(projId); };
+  var b2=document.createElement('button');
+  b2.textContent='サーバーを正にする（取り込む）'; b2.className='btn-secondary';
+  b2.style.fontSize='11px'; b2.style.padding='3px 8px';
+  b2.onclick=function(){
+    applyProjNoteToScreen(projId, sv);
+    var p=_projects.find(function(x){return x.id===projId;});
+    if(p) p.note=sv;
+    _projNoteBase[projId]=sv; _projNoteServer[projId]=sv;
+    resolveUnsaved(_unsavedProjectIds, projId); clearProjNoteUnsaved(projId);
+    saveLocal(); _projNoteOkAt[projId]=fmtHM(); updateNoteState(projId);
+  };
+  el.appendChild(s); el.appendChild(b1); el.appendChild(b2);
 }
 
 // フリーメモをGASに保存する。
@@ -8803,6 +8961,7 @@ function pushProjectNote(projId, _unusedHtml, tryLeft){
   if(payload===server){ noteAdoptServer(projId,server); return; }
   _projNoteInflight[projId]=true;
   _projNotePending[projId]=false;
+  updateNoteState(projId);
   var fd=new FormData();
   fd.append('action','updateProjectNote');
   fd.append('id',projId);
@@ -8832,6 +8991,9 @@ function pushProjectNote(projId, _unusedHtml, tryLeft){
         // 入力中で画面が先に進んでいるときは、画面も出発点も触らない。
         // 次の保存で、いまの出発点との差分として送られる。
         resolveUnsaved(_unsavedProjectIds, projId);
+        clearProjNoteUnsaved(projId);   // 2026-09-07：持ち越しも消す
+        _projNoteOkAt[projId]=fmtHM();
+        updateNoteState(projId);
         saveLocal();
         if(_projNotePending[projId]){
           _projNotePending[projId]=false;
@@ -8850,9 +9012,11 @@ function pushProjectNote(projId, _unusedHtml, tryLeft){
     .catch(function(){
       _projNoteInflight[projId]=false;
       if(tryLeft>1){ setTimeout(function(){ pushProjectNote(projId,null,tryLeft-1); },2500); return; }
-      _unsavedProjectIds.add(projId);
-      if(typeof updateSyncStatusUnsaved==='function') updateSyncStatusUnsaved();
-      noteFlash(projId,'⚠️ 保存できませんでした（この端末には残っています）');
+      // 2026-09-07：件数カウンタを増やしていなかったため、画面上部の警告が出ていなかった。
+      // localStorage にも残して、開き直しても消えないようにする。
+      markProjNoteUnsaved(projId);
+      updateNoteState(projId);
+      noteFlash(projId,'⚠️ 保存できていません（この端末に残しています。同期のたびに送り直します）', true);
     });
 }
 
