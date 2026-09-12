@@ -1286,7 +1286,7 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
           <!-- ステップ3：教室×カレンダーの設定 -->
           <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border);">Step 3 ｜ 教室×カレンダーの設定</div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">「教室」欄でカレンダーの行き先が決まります。教室に関係ないタスクは<b>クロフネ</b>を選んでください。
-            <span class="tt" style="margin-left:4px;"><span class="help-mark">?</span><span class="tt-body">📅 <b>Gカレ書出の条件（3点すべて必要）</b><br>① タスクに<b>教室</b>が設定されている<br>② <b>期限日＋時刻</b>が両方設定されている<br>③ この表で該当教室の<b>書出がON</b>になっている<br><br><b>カテゴリごとの自動入力</b><br>・生徒対応／問い合わせ対応／振替 → 今日・13:00・北久里浜<br>・フォレスタDB → 12:00・クロフネ（期日は手で入れる）<br>・空欄のときだけ入ります。手で変えればそちらが優先<br><br><b>書出の動作</b><br>・条件が揃った状態で保存すると自動登録<br>・条件から外れると予定も消える<br>・タスク削除時にGカレの予定も削除。完了しても予定は残ります<br><br><b>Class Board とは別条件</b><br>・Class Board に出るのは「種別（授業内／授業外）」が入っているものだけ</span></span>
+            <span class="tt" style="margin-left:4px;"><span class="help-mark">?</span><span class="tt-body">📅 <b>Gカレ書出の条件（3点すべて必要）</b><br>① タスクに<b>教室</b>が設定されている<br>② <b>期限日＋時刻</b>が両方設定されている<br>③ この表で該当教室の<b>書出がON</b>になっている<br><br><b>カテゴリごとの自動入力</b><br>・生徒対応 → 今日・北久里浜・授業内（<b>時刻は入れない＝Gカレに出ない／Class Boardには出る</b>）<br>・問い合わせ対応／振替 → 今日・13:00・北久里浜<br>・フォレスタDB → 今日・12:00・クロフネ<br>・空欄のときだけ入ります。手で変えればそちらが優先<br><br><b>書出の動作</b><br>・条件が揃った状態で保存すると自動登録<br>・条件から外れると予定も消える<br>・タスク削除時にGカレの予定も削除。完了しても予定は残ります<br><br><b>Class Board とは別条件</b><br>・Class Board に出るのは「種別（授業内／授業外）」が入っているものだけ</span></span>
           </div>
 
           <div id="gcalMappingTable" style="margin-bottom:12px;overflow-x:auto;">
@@ -2917,7 +2917,7 @@ function quickAddTask(e,vid){
     classroom:classroom,taskType:taskType,priority:'',
     createdBy:_settings.myName||'',createdAt:now,updatedAt:now};
   // カテゴリの既定値を入れる（欄が空のまま送られた場合の取りこぼし対策）
-  applyCatDefaultsToTask(t); classroom=t.classroom; dueTime=t.dueTime;
+  applyCatDefaultsToTask(t); classroom=t.classroom; dueTime=t.dueTime; taskType=t.taskType;
   if(taskType && !classroom){
     if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
   }
@@ -3867,7 +3867,7 @@ function groupQuickAdd(safeId, catName, vid){
     createdBy: _settings.myName||'', createdAt: now, updatedAt: now
   };
   // カテゴリの既定値を入れる（欄が空のまま送られた場合の取りこぼし対策）
-  applyCatDefaultsToTask(t); classroom=t.classroom; dueTime=t.dueTime;
+  applyCatDefaultsToTask(t); classroom=t.classroom; dueTime=t.dueTime; taskType=t.taskType;
   if(taskType && !classroom){
     if(!confirm('ClassBoard（'+taskType+'）が設定されていますが、教室が未入力です。\nこのままだとクラスボードで読み取れません（条件：教室・ClassBoard・期日の3点が必要）。\n\nこのまま保存しますか？')) return;
   }
@@ -6415,15 +6415,21 @@ function gcalExportPlan(task) {
 
 // ---- Gカレ対象カテゴリ選択時にデフォルト値を自動セット ----
 // カテゴリごとの既定値（2026-09-12 改訂：1か所にまとめ、カテゴリごとに値を変えられるようにした）
-//   time      … 時刻が空のときに入れる時刻（日本時間）
-//   classroom … 教室が空のときに入れる教室。カレンダーの行き先はこれで決まる
-//   setToday  … 期日が空のときに今日を入れるか。先の日付を指定することが多いカテゴリは false
+//   time      … 時刻が空のときに入れる時刻（日本時間）。**入れないとGカレに出ない**
+//   classroom … 教室が空のときに入れる教室。Gカレの行き先はこれで決まる
+//   setToday  … 期日が空のときに今日を入れるか
+//   type      … 種別が空のときに入れる値（授業内／授業外）。**Class Board に出るかはこれで決まる**
 // ここを直せば、クイック追加欄・カテゴリ別フォーム・詳細画面の新規作成すべてに効く。
+//
+// Gカレ と Class Board は別条件（2026-09-12 川上さん確認）
+//   Gカレ      … 期限日＋時刻＋教室の書出ON。時刻が無ければ出ない
+//   ClassBoard … 種別＋未完了＋期限日＋教室。時刻は関係ない
+//   → 生徒対応は time を持たせないことで「Class Board には出るがGカレには出ない」にしている
 var GCAL_AUTO_CATEGORIES = {
-  '生徒対応':       { time: '13:00', classroom: '北久里浜', setToday: true },
+  '生徒対応':       {                 classroom: '北久里浜', setToday: true, type: '授業内' },
   '問い合わせ対応': { time: '13:00', classroom: '北久里浜', setToday: true },
   '振替':           { time: '13:00', classroom: '北久里浜', setToday: true },
-  'フォレスタDB':   { time: '12:00', classroom: 'クロフネ', setToday: false }
+  'フォレスタDB':   { time: '12:00', classroom: 'クロフネ', setToday: true }
 };
 
 // 新しく作るタスクに既定値を入れる（空のときだけ）。作成経路すべてから呼ぶ。
@@ -6433,6 +6439,7 @@ function applyCatDefaultsToTask(t) {
   if (!def) return t;
   if (!t.dueTime   && def.time)      t.dueTime   = def.time;
   if (!t.classroom && def.classroom) t.classroom = def.classroom;
+  if (!t.taskType  && def.type)      t.taskType  = def.type;
   return t;
 }
 
@@ -6466,6 +6473,17 @@ function applyGcalCategoryDefaults(category, vid, safeId) {
     // 教室：未設定のときだけカテゴリの既定教室をセット
     var clsEl = document.getElementById('qadd-cls-' + safeId);
     if (clsEl && !clsEl.value && def.classroom) clsEl.value = def.classroom;
+    // 種別：未設定のときだけカテゴリの既定種別をセット（ボタンの見た目も合わせる）
+    if (def.type && !_quickType[key]) {
+      _quickType[key] = def.type;
+      var wrap = document.querySelector('#qadd-row-' + safeId + ' .type-toggle-wrap');
+      if (wrap) {
+        var tb = wrap.querySelectorAll('.type-toggle-btn');
+        tb.forEach(function(b){ b.classList.remove('active-out','active-in'); });
+        if (tb[0] && def.type === '授業外') tb[0].classList.add('active-out');
+        if (tb[1] && def.type === '授業内') tb[1].classList.add('active-in');
+      }
+    }
   } else if (vid) {
     // クイック追加バー（quick-*-all / quick-*-mine）
     // 期日：未設定のときだけ今日をセット（setToday が true のカテゴリのみ）
@@ -6485,6 +6503,16 @@ function applyGcalCategoryDefaults(category, vid, safeId) {
     // 教室：未設定のときだけカテゴリの既定教室をセット
     var clsEl2 = document.getElementById('quick-cls-' + vid);
     if (clsEl2 && !clsEl2.value && def.classroom) clsEl2.value = def.classroom;
+    // 種別：未設定のときだけカテゴリの既定種別をセット（ボタンの見た目も合わせる）
+    if (def.type && !_quickType[vid]) {
+      _quickType[vid] = def.type;
+      ['out','in'].forEach(function(k){
+        var b = document.getElementById('quick-type-' + k + '-' + vid);
+        if (b) b.classList.remove('active-out','active-in');
+      });
+      var bt = document.getElementById('quick-type-' + (def.type === '授業内' ? 'in' : 'out') + '-' + vid);
+      if (bt) bt.classList.add(def.type === '授業内' ? 'active-in' : 'active-out');
+    }
   }
 }
 
