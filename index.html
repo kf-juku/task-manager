@@ -1293,7 +1293,19 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
             <div style="font-size:12px;color:var(--text-muted);">カレンダー一覧を取得してください</div>
           </div>
 
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">※ 担当者固定：取込時の担当者を強制指定します。空欄は担当者なしで取り込まれます<br>※ Gカレ色：書出時にGカレ上で付ける色です。空欄はカレンダーのデフォルト色になります<br>※ 期限日がないタスクはGカレに書き出されません<br>※ 書出はタスクの「教室」フィールドに対応するカレンダーに送られます</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:18px;">※ 担当者固定：取込時の担当者を強制指定します。空欄は担当者なしで取り込まれます<br>※ Gカレ色：書出時にGカレ上で付ける色です。空欄はカレンダーのデフォルト色になります<br>※ 期限日がないタスクはGカレに書き出されません<br>※ 書出はタスクの「教室」フィールドに対応するカレンダーに送られます</div>
+
+          <!-- ステップ4：カテゴリごとの書出設定（2026-09-12 追加） -->
+          <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border);">Step 4 ｜ カテゴリ×カレンダーの設定（書出のみ）</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">教室に関係なく、<b>カテゴリ</b>でカレンダーを決めたいときに使います。カテゴリの設定がある場合はそちらが優先され、教室の設定は使われません。
+            <span class="tt" style="margin-left:4px;"><span class="help-mark">?</span><span class="tt-body">📅 <b>カテゴリ書出の条件</b><br>① タスクの<b>カテゴリ</b>がこの表にある<br>② その行の<b>書出がON</b>＋カレンダーが選ばれている<br>③ <b>期限日</b>がある（時刻は「時刻なしの時」を設定していれば空でもOK）<br><br><b>時刻なしの時</b><br>・時刻を入れると、時刻が空のタスクを保存したときに<b>タスクの時刻欄そのもの</b>にその時刻（日本時間）が入ります<br>・空欄のままなら、時刻のないタスクはGカレに載りません<br><br><b>教室の設定と両方ある場合</b><br>・カテゴリが優先されます（予定は1件だけ）</span></span>
+          </div>
+
+          <div id="gcalCatTable" style="margin-bottom:12px;overflow-x:auto;">
+            <div style="font-size:12px;color:var(--text-muted);">カレンダー一覧を取得してください</div>
+          </div>
+
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">※ この表は書出（タスク→Gカレ）専用です。取込（Gカレ→タスク）は Step 3 の教室の表だけで設定します<br>※ カテゴリ側のカレンダーが未設定の行は、従来どおり教室の設定で判定されます</div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <button class="btn-primary" onclick="saveGcalSettings(this)">💾 設定を保存（全員に反映）</button>
@@ -2562,9 +2574,9 @@ function renderTaskCard(t){
   // Gカレボタン: 連携済みなら📅チェック済み表示、未連携かつ期限日ありなら手動エクスポートボタン
   var gcalBtn='';
   if(t.gcalEventId){
-    gcalBtn='<span class="btn-icon" title="📅 Gカレ連携済み｜条件：①教室 ②期限日＋時刻 ③設定タブの書出ON" style="font-size:13px;color:#34a853;cursor:default;position:relative;">📅<span style="position:absolute;top:-3px;right:-3px;font-size:8px;background:#34a853;color:white;border-radius:50%;width:10px;height:10px;display:flex;align-items:center;justify-content:center;line-height:1;">✓</span></span>';
+    gcalBtn='<span class="btn-icon" title="📅 Gカレ連携済み｜条件：①カテゴリか教室 ②期限日＋時刻 ③設定タブの書出ON" style="font-size:13px;color:#34a853;cursor:default;position:relative;">📅<span style="position:absolute;top:-3px;right:-3px;font-size:8px;background:#34a853;color:white;border-radius:50%;width:10px;height:10px;display:flex;align-items:center;justify-content:center;line-height:1;">✓</span></span>';
   } else if(t.dueDate && _gcalSettings && (_gcalSettings.classMappings||[]).some(function(m){return m.exportOn;})){
-    gcalBtn='<button class="btn-icon" onclick="pushTaskToGcalManual(\''+t.id+'\');event.stopPropagation();" title="📅 Gカレに登録｜条件：①教室 ②期限日＋時刻 ③設定タブの書出ON" style="font-size:13px;">📅</button>';
+    gcalBtn='<button class="btn-icon" onclick="pushTaskToGcalManual(\''+t.id+'\');event.stopPropagation();" title="📅 Gカレに登録｜条件：①カテゴリか教室 ②期限日＋時刻 ③設定タブの書出ON" style="font-size:13px;">📅</button>';
   } else if(gcal){
     gcalBtn='<a class="btn-icon" href="'+gcal+'" target="_blank" rel="noopener" title="カレンダーに追加" style="font-size:13px;text-decoration:none;">📅</a>';
   }
@@ -6070,9 +6082,23 @@ var GCAL_COLORS = [
 ];
 
 // _gcalSettings: { classMappings: [...], daysAhead: 30 }
-// classMappings[]: { classroom, calId, calName, calColor, importOn, exportOn, assignee, gcalColor }
-// ※ 教室を軸にインポート・エクスポートを管理。カテゴリ軸は廃止。
+// classMappings[]: { rowKind, classroom, taskCat, defaultTime, calId, calName, calColor, importOn, exportOn, assignee, gcalColor }
+//   rowKind='class'（または空）… 教室行。取込＋書出。
+//   rowKind='cat'              … カテゴリ行（2026-09-12 追加）。書出のみ。defaultTime は時刻が空のときに補う時刻。
+// ※ 書出の判定はカテゴリ行が優先。カテゴリ行に当たらなければ教室行を見る。
 var _gcalSettings = { classMappings: [], daysAhead: 30 };
+
+// カレンダーの表示名エイリアス（2026-09-12）
+// Googleカレンダーで既定カレンダーをリネームしても、GAS側はメールアドレスのまま返してくる。
+// 画面で分からなくなるので、ここで表示名を補う。増えたらここに足す。
+var GCAL_NAME_ALIAS = {
+  'kurofune.school@gmail.com': '進学塾クロフネ'
+};
+function gcalCalLabel(c) {
+  if (!c) return '';
+  var alias = GCAL_NAME_ALIAS[c.id];
+  return alias ? (alias + '（' + (c.name || c.id) + '）') : (c.name || c.id);
+}
 // 2026-08-21：Gカレ設定の読み込みに失敗したかどうか。
 // 失敗すると _gcalSettings が空のまま残り、その状態で保存を押すと全教室のマッピングが消えるため、
 // 保存側で必ずこのフラグを見る。
@@ -6095,6 +6121,7 @@ function loadGcalSettings(callback) {
         _gcalSettings.daysAhead     = d.daysAhead || 30;
       } else if (d.mappings) {
         // 旧フォーマット互換：mappings → classMappings に変換して読み込む
+        // 旧形式（mappings）。rowKind を持たないので全部 教室行 として読む。
         _gcalSettings.classMappings = (d.mappings||[]).map(function(m){
           return { classroom: m.classroom||'', calId: m.calId, calName: m.calName,
             calColor: m.calColor||'', importOn: !!m.importOn, exportOn: !!m.exportOn,
@@ -6132,9 +6159,27 @@ function saveGcalSettings(btn) {
     // calId に対応するカレンダー名・色を _gcalCalendars から引く
     var calInfo   = _gcalCalendars.find(function(c){ return c.id === calId; }) || {};
     _gcalSettings.classMappings.push({
-      classroom: classroom, calId: calId, calName: calInfo.name||'',
+      rowKind: 'class',
+      classroom: classroom, taskCat: '', defaultTime: '',
+      calId: calId, calName: calInfo.name||'',
       calColor: calInfo.color||'', importOn: importOn, exportOn: exportOn,
       assignee: assignee, gcalColor: gcalColor
+    });
+  });
+  // カテゴリ行（2026-09-12 追加。書出のみ・取込は持たない）
+  document.querySelectorAll('.gcal-cat-row').forEach(function(row){
+    var taskCat   = row.dataset.taskcat;
+    var calId     = row.querySelector('.gcal-cal-select').value;
+    var exportOn  = row.querySelector('.gcal-export-on').checked;
+    var defTime   = row.querySelector('.gcal-default-time') ? row.querySelector('.gcal-default-time').value : '';
+    var gcalColor = row.querySelector('.gcal-color')        ? row.querySelector('.gcal-color').value        : '';
+    var calInfo   = _gcalCalendars.find(function(c){ return c.id === calId; }) || {};
+    _gcalSettings.classMappings.push({
+      rowKind: 'cat',
+      classroom: '', taskCat: taskCat, defaultTime: defTime,
+      calId: calId, calName: calInfo.name||'',
+      calColor: calInfo.color||'', importOn: false, exportOn: exportOn,
+      assignee: '', gcalColor: gcalColor
     });
   });
 
@@ -6195,6 +6240,7 @@ function fetchGcalList(btn) {
       _gcalCalendars = d.calendars || [];
       if (statusEl) statusEl.textContent = '✅ ' + _gcalCalendars.length + '件取得';
       renderGcalMappingTable();
+      renderGcalCatTable();
       if (_restore) _restore();
     })
     .catch(function(err){
@@ -6214,9 +6260,13 @@ function renderGcalMappingTable() {
     return;
   }
 
-  // 保存済み設定を教室キーでインデックス化
+  // 保存済み設定を教室キーでインデックス化（カテゴリ行は除く）
   var savedMap = {};
-  (_gcalSettings.classMappings||[]).forEach(function(m){ savedMap[m.classroom] = m; });
+  (_gcalSettings.classMappings||[]).forEach(function(m){
+    if (m.rowKind === 'cat') return;
+    if (!m.classroom) return;
+    savedMap[m.classroom] = m;
+  });
 
   // 担当者選択肢
   var asgOpts = '<option value="">担当者固定なし</option>'
@@ -6229,7 +6279,7 @@ function renderGcalMappingTable() {
   // カレンダー選択肢
   var calOpts = '<option value="">── 未設定 ──</option>'
     + _gcalCalendars.map(function(c){
-        return '<option value="'+esc(c.id)+'">'+esc(c.name)+'</option>';
+        return '<option value="'+esc(c.id)+'">'+esc(gcalCalLabel(c))+'</option>';
       }).join('');
 
   var html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
@@ -6272,6 +6322,67 @@ function renderGcalMappingTable() {
   if (dEl) dEl.value = _gcalSettings.daysAhead || 30;
 }
 
+// ---- カテゴリ×カレンダーのマッピングテーブルを描画（2026-09-12 追加・書出のみ） ----
+function renderGcalCatTable() {
+  var el = document.getElementById('gcalCatTable');
+  if (!el) return;
+  if (_gcalCalendars.length === 0) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">カレンダー一覧を取得してください</div>';
+    return;
+  }
+
+  // 保存済み設定をカテゴリキーでインデックス化
+  var savedMap = {};
+  (_gcalSettings.classMappings||[]).forEach(function(m){
+    if (m.rowKind !== 'cat') return;
+    if (!m.taskCat) return;
+    savedMap[m.taskCat] = m;
+  });
+
+  var colorOpts = '<option value="">デフォルト</option>'
+    + GCAL_COLORS.map(function(c){ return '<option value="'+esc(c.val)+'">'+c.label+'</option>'; }).join('');
+  var calOpts = '<option value="">── 未設定 ──</option>'
+    + _gcalCalendars.map(function(c){
+        return '<option value="'+esc(c.id)+'">'+esc(gcalCalLabel(c))+'</option>';
+      }).join('');
+
+  // 設定タブのマスタ（_cats）に加えて、マスタから消えたあとも設定が残っているカテゴリを拾う
+  var cats = (_cats||[]).slice();
+  Object.keys(savedMap).forEach(function(k){ if (cats.indexOf(k) < 0) cats.push(k); });
+
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+    + '<thead><tr style="background:var(--surface2);border-bottom:1.5px solid var(--border);">'
+    + '<th style="padding:6px 8px;text-align:left;font-weight:700;min-width:100px;">カテゴリ</th>'
+    + '<th style="padding:6px 8px;text-align:left;">カレンダー</th>'
+    + '<th style="padding:6px 4px;text-align:center;white-space:nowrap;">📤 書出</th>'
+    + '<th style="padding:6px 8px;text-align:left;white-space:nowrap;">時刻なしの時</th>'
+    + '<th style="padding:6px 8px;text-align:left;">Gカレ色（書出時）</th>'
+    + '</tr></thead><tbody>';
+
+  cats.forEach(function(cat){
+    var saved     = savedMap[cat] || {};
+    var calId     = saved.calId || '';
+    var exportOn  = saved.exportOn !== undefined ? saved.exportOn : false;
+    // 未設定の行は 12:00（日本時間）を初期値にしておく。書出OFFの行では使われない。
+    var defTime   = saved.defaultTime || (savedMap[cat] ? '' : '12:00');
+    var gcalColor = saved.gcalColor || '';
+
+    var calOptsWithSel   = calOpts.replace('value="'+calId+'"',     'value="'+calId+'" selected');
+    var colorOptsWithSel = colorOpts.replace('value="'+gcalColor+'"','value="'+gcalColor+'" selected');
+
+    html += '<tr class="gcal-cat-row" data-taskcat="'+esc(cat)+'" style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;font-weight:600;">'+esc(cat)+'</td>'
+      + '<td style="padding:6px 8px;"><select class="quick-add-sel gcal-cal-select" style="font-size:12px;min-width:140px;">'+calOptsWithSel+'</select></td>'
+      + '<td style="padding:6px 4px;text-align:center;"><input type="checkbox" class="gcal-export-on"'+(exportOn?' checked':'')+'></td>'
+      + '<td style="padding:6px 8px;"><input type="time" class="form-input gcal-default-time" value="'+esc(defTime)+'" style="font-size:12px;width:110px;"></td>'
+      + '<td style="padding:6px 8px;"><select class="quick-add-sel gcal-color" style="font-size:12px;min-width:120px;">'+colorOptsWithSel+'</select></td>'
+      + '</tr>';
+  });
+
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
 // ---- 設定タブを開いたときに呼ぶ ----
 function renderGcalSettings() {
   var dEl = document.getElementById('cfgGcalDays');
@@ -6279,6 +6390,7 @@ function renderGcalSettings() {
   // カレンダー一覧が取得済みなら再描画、なければ案内だけ
   if (_gcalCalendars.length > 0) {
     renderGcalMappingTable();
+    renderGcalCatTable();
   }
 }
 
@@ -6290,7 +6402,7 @@ function importFromGcal(btn) {
   if (statusEl) statusEl.textContent = '📥 取り込み中...';
 
   // 教室軸のマッピングからインポートONのものを抽出
-  var importMappings = (_gcalSettings.classMappings||[]).filter(function(m){ return m.importOn && m.calId; });
+  var importMappings = (_gcalSettings.classMappings||[]).filter(function(m){ return m.rowKind !== 'cat' && m.importOn && m.calId; });
   if (importMappings.length === 0) {
     if (statusEl) statusEl.textContent = '取り込み対象のカレンダーが設定されていません';
     return;
@@ -6356,13 +6468,32 @@ function importFromGcal(btn) {
   });
 }
 
-// ---- エクスポート用ヘルパー（教室軸） ----
-function gcalExportMapping(classroom) {
+// ---- エクスポート用ヘルパー（2026-09-12 カテゴリ優先 → 教室） ----
+// GAS側の gcalFindExportMapping_ と同じ判定にする。片方だけ直すと画面と実動作がずれる。
+function gcalExportMapping(category, classroom) {
   var maps = _gcalSettings.classMappings || [];
+  var catHit = null, clsHit = null;
   for (var i = 0; i < maps.length; i++) {
-    if (maps[i].exportOn && maps[i].classroom === classroom && maps[i].calId) return maps[i];
+    var m = maps[i];
+    if (!m.exportOn || !m.calId) continue;
+    if (m.rowKind === 'cat') {
+      if (!catHit && category && m.taskCat === category) catHit = m;
+    } else {
+      if (!clsHit && classroom && m.classroom === classroom) clsHit = m;
+    }
   }
-  return null;
+  return catHit || clsHit;
+}
+
+// タスクに対する書出マッピングと、実際にGカレへ載る時刻を返す
+// 戻り値: { mapping, dueTime }（載らないときは mapping=null）
+function gcalExportPlan(task) {
+  if (!task || !task.dueDate) return { mapping: null, dueTime: task ? (task.dueTime||'') : '' };
+  var m = gcalExportMapping(task.category || '', task.classroom || '');
+  var t = task.dueTime || '';
+  if (m && !t && m.defaultTime) t = m.defaultTime;
+  if (!t) return { mapping: null, dueTime: task.dueTime || '' };
+  return { mapping: m || null, dueTime: t };
 }
 
 // ---- Gカレ対象カテゴリ選択時にデフォルト値を自動セット ----
@@ -6422,9 +6553,8 @@ function applyGcalCategoryDefaults(category, vid, safeId) {
 }
 
 function shouldAutoExportToGcal(task) {
-  if (!task.dueDate || !task.dueTime) return false;
-  var m = gcalExportMapping(task.classroom || '');
-  return !!m;
+  if (!task || !task.dueDate) return false;
+  return !!gcalExportPlan(task).mapping;
 }
 
 // ---- タスクをGカレにエクスポート（自動・期限日必須） ----
@@ -6439,8 +6569,7 @@ function pushTaskToGcalWithToast(task) {
   // 完全一本化(2026-06-14)：Gカレ直接登録は廃止。保存(pushTaskToGas)は呼び出し側が行う。
   // この関数はトースト通知だけ担当（二重保存を避けるためpushTaskToGasは呼ばない）。
   if (!task) return;
-  var m = gcalExportMapping(task.classroom || '');
-  if (task.dueDate && task.dueTime && m) {
+  if (shouldAutoExportToGcal(task)) {
     toast('📅 Gカレに登録しました');
   }
 }
@@ -6452,12 +6581,15 @@ function pushTaskToGcalManual(taskId) {
   var t = _tasks.find(function(x){ return x.id === taskId; });
   if (!t) return;
   if (!t.dueDate) { toast('❌ 期限日を設定してください'); return; }
-  if (!t.dueTime) { toast('❌ 時刻を設定してください'); return; }
   var gasUrl = (_settings && _settings.gasUrl) ? _settings.gasUrl : '';
   if (!gasUrl) { toast('❌ GAS URLが設定されていません'); return; }
-  if (!t.classroom) { toast('❌ 教室を設定してください'); return; }
-  var m = gcalExportMapping(t.classroom);
-  if (!m) { toast('❌ 設定タブで「' + t.classroom + '」の書出カレンダーを設定してください'); return; }
+  var m = gcalExportMapping(t.category || '', t.classroom || '');
+  if (!m) {
+    if (!t.category && !t.classroom) { toast('❌ カテゴリか教室を設定してください'); return; }
+    toast('❌ 設定タブで「' + (t.category || t.classroom) + '」の書出カレンダーを設定してください');
+    return;
+  }
+  if (!t.dueTime && !m.defaultTime) { toast('❌ 時刻を設定してください'); return; }
   pushTaskToGas(t.id);
   toast('📅 Gカレに登録しました');
 }
