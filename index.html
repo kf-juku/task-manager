@@ -697,7 +697,10 @@ body.ptask-dragging, body.ptask-dragging * { cursor: grabbing !important; }
 .snippet-add-area { padding: 10px 14px; border-bottom: 1px solid var(--border); background: #fafbfc; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
 .snippet-add-title { font-size: 12px; font-family: inherit; border: 1.5px solid var(--border); border-radius: 7px; padding: 6px 10px; background: white; color: var(--text); }
 .snippet-add-title:focus { outline: none; border-color: var(--crimson); }
-.snippet-add-body { font-size: 12px; font-family: inherit; border: 1.5px solid var(--border); border-radius: 7px; padding: 6px 10px; background: white; color: var(--text); resize: none; height: 36px; min-height: 36px; overflow: hidden; transition: height 0.15s; }
+.snippet-add-body { font-size: 12px; font-family: inherit; border: 1.5px solid var(--border); border-radius: 7px; padding: 6px 10px; background: white; color: var(--text); resize: none; height: 36px; min-height: 36px; max-height: 40vh; overflow-y: auto; transition: height 0.15s; }
+/* 2026-10-28：長文を入れてもタイトル欄と追加ボタンが見えなくならないよう、1行にまとめて上に置く。本文は40vhで止めて中でスクロール */
+.snippet-add-head { display: flex; gap: 6px; align-items: center; }
+.snippet-add-head .snippet-add-title { flex: 1; min-width: 0; }
 .snippet-add-body:focus { outline: none; border-color: var(--crimson); }
 .btn-copy-snippet { display: inline-flex; align-items: center; gap: 3px; background: var(--blue-light); color: var(--blue-dark); border: 1.5px solid #93c5fd; border-radius: 6px; padding: 3px 9px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.12s; }
 .btn-copy-snippet:hover { background: #bfdbfe; }
@@ -6956,6 +6959,7 @@ function syncFromGas(){
   // 同期ボタンをスピナー表示（元テキストを保存しておく）
   var syncBtns=document.querySelectorAll('[onclick="syncFromGas()"]');
   syncBtns.forEach(function(b){ b._origText=b.textContent; b.disabled=true; b.textContent='⏳ 同期中...'; });
+  var _syncStartAt=Date.now();   // 2026-10-28：定型文の古い応答を見分けるため
   fetch(_settings.gasUrl+'?action=getAll',{redirect:'follow'})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -7061,6 +7065,7 @@ function syncFromGas(){
         // 下の「出発点の付け替え」はこの控えを使う。_projects 側は保護でローカル値に化けることがあり、
         // それを「サーバーの現在値」として扱うと照合が狂う。
         var srvNote={}, srvUp={};
+        var _snipToUpload=[];   // 2026-10-28：初回の移行でサーバーへ上げるプロジェクト
         d.projects.forEach(function(gp){ srvNote[gp.id]=gp.note||''; srvUp[gp.id]=gp.updatedAt||''; });
         // note/memos/logs/snippetsはGASに未保存の場合はローカルを優先
         d.projects.forEach(function(gp){
@@ -7078,7 +7083,25 @@ function syncFromGas(){
                ||noteRespIsStale(gp.id, gp.updatedAt))) gp.note=local.note;
             if(local.memos&&local.memos.length&&!(gp.memos&&gp.memos.length)) gp.memos=local.memos;
             if(local.logs&&local.logs.length&&!(gp.logs&&gp.logs.length)) gp.logs=local.logs;
-            if(local.snippets&&local.snippets.length&&!(gp.snippets&&gp.snippets.length)) gp.snippets=local.snippets;
+            if(gp.snippetsSet===undefined){
+              // GASがまだO列に対応していない（古いGAS）。従来どおりローカルを守るだけ
+              if(local.snippets&&local.snippets.length&&!(gp.snippets&&gp.snippets.length)) gp.snippets=local.snippets;
+            } else if((_snipEditAt[gp.id]||0)>=_syncStartAt-2000 || _snipInflight[gp.id] || _snipUnsaved[gp.id]){
+              // 2026-10-28：同期の途中で自分が変えた・送信中・送れなかった → 画面の定型文を残す
+              gp.snippets=local.snippets||[];
+              // 送れなかったものは、送信中でなければこの同期のあとに送り直す
+              if(_snipUnsaved[gp.id]&&!_snipInflight[gp.id]) _snipToUpload.push(gp.id);
+            } else if(!_snipMigrated[gp.id] && local.snippets && local.snippets.length){
+              // 2026-10-28：初回の移行。この端末にしか無い定型文（タイトル＋本文が同じものはサーバー側にあるとみなす）を足して上げる
+              var srvS=gp.snippets||[], seen={};
+              srvS.forEach(function(x){ seen[(x.title||'')+'\u0001'+(x.body||'')]=1; });
+              var addS=local.snippets.filter(function(x){ return !seen[(x.title||'')+'\u0001'+(x.body||'')]; });
+              if(addS.length){ gp.snippets=srvS.concat(addS); _snipToUpload.push(gp.id); }
+              else snipMarkMigrated(gp.id);
+            } else if(!_snipMigrated[gp.id]){
+              snipMarkMigrated(gp.id);
+            }
+            // それ以外はサーバーの定型文を使う（他の端末での追加・削除が届く）
           }
         });
         // 2026-08-21：ローカルにのみ存在するプロジェクトを、タスクと同じ条件で残す。
@@ -7095,6 +7118,10 @@ function syncFromGas(){
           // 1分以上経ってGASに無いものは削除済みとみなしてスルー
         });
         _projects=d.projects;
+        _snipToUpload.forEach(function(pid){
+          pushProjectToGas(pid, null, {snippets:true});
+          snipMarkMigrated(pid);
+        });
       }
       if(d.projectItems){
         // ローカルにしか存在しないフィールド（content.dependsOn・content.priority・sortOrder）を引き継ぐ
@@ -7204,7 +7231,9 @@ function syncFromGas(){
       // ・.card-memo-rich[contenteditable="true"]：カードメモ編集中
       // ・activeElement.isContentEditable：詳細メモ（#detailMemoText）・プロジェクトタスク名など常時contenteditable系
       var editingInline = !!document.querySelector('.task-inline-edit, .task-inline-input, .detail-inline-edit, .card-memo-rich[contenteditable="true"]')
-        || !!(document.activeElement && document.activeElement.isContentEditable);
+        || !!(document.activeElement && document.activeElement.isContentEditable)
+        // 2026-10-28：定型文の書きかけ（追加欄に文字がある・✏️の編集フォームが開いている）も描き直さない
+        || snippetDraftOpen();
       if(!inBulk && !editingInline){
         renderAllViews(); renderBoard(); renderProjectNav();
         // 2026-08-26：開いているプロジェクト詳細も描き直す。
@@ -7633,10 +7662,15 @@ function deleteTaskFromGas(id, done){
   gasPostRetry(fd, 'タスクの削除', { onSuccess: function(){ if(done) done(); }, onFinalFail: function(){ if(done) done(); } });
 }
 
-function pushProjectToGas(id, done){
+// 2026-10-28：opts.snippets=true のときだけ、GASに定型文(O列)を書いてもらう（snippetsOp=1）。
+// 定型文の追加・編集・削除・並び替えの4か所と、初回の移行だけが付ける。
+// それ以外の保存は定型文に触れない（古い画面の古い定型文でサーバーを上書きしないため）。
+function pushProjectToGas(id, done, opts){
   if(!_settings.gasUrl){ if(done) done(); return; }
   var p=_projects.find(function(x){return x.id===id;}); if(!p){ if(done) done(); return; }
+  var snipOp=!!(opts&&opts.snippets);
   var fd=new FormData(); fd.append('action','saveProject'); fd.append('project',JSON.stringify(p));
+  if(snipOp){ fd.append('snippetsOp','1'); _snipInflight[id]=(_snipInflight[id]||0)+1; }
   // 2026-08-21：議論メモ・作業履歴の列はGAS側でシートの既存値を維持してもらう。
   // saveProject は14箇所から呼ばれ、メモ欄の保存や定型文の追加でも
   // プロジェクト全体（memos・logs 込み）を送るため、これが無いと差分更新が巻き戻る。
@@ -7645,10 +7679,35 @@ function pushProjectToGas(id, done){
   // 画面に残っていた古い note でシートを巻き戻していたため。
   // メモ欄そのものの保存は pushProjectNote（updateProjectNote）が担当する。
   fd.append('keep','memos,logs,note');
+  function snipDone(ok){
+    if(!snipOp) return;
+    _snipInflight[id]=Math.max(0,(_snipInflight[id]||0)-1);
+    if(ok) delete _snipUnsaved[id]; else _snipUnsaved[id]=1;
+  }
   gasPostRetry(fd, 'プロジェクトの保存', {
-    onSuccess:   function(){ resolveUnsaved(_unsavedProjectIds, id); if(done) done(); },
-    onFinalFail: function(){ _unsavedProjectIds.add(id);    if(done) done(); } });
+    onSuccess:   function(){ snipDone(true);  resolveUnsaved(_unsavedProjectIds, id); if(done) done(); },
+    onFinalFail: function(){ snipDone(false); _unsavedProjectIds.add(id);    if(done) done(); } });
 }
+// ===== 定型文の同期（2026-10-28）=====
+// 同期(getAll)は30〜60秒かかる。その間に自分が定型文を変えた・送信中・送れなかった、のどれかなら、
+// 返ってきたサーバー版で画面の定型文を上書きしない。
+var _snipEditAt={};    // projId → 最後に定型文を変えた時刻(ms)
+var _snipInflight={};  // projId → 送信中の件数
+var _snipUnsaved={};   // projId → 最後の送信が失敗した
+// 初回の移行：この端末にしか無い定型文をサーバーへ上げたプロジェクト（端末ごとに1回だけ）
+var _snipMigrated=(function(){ try{ return JSON.parse(localStorage.getItem('tm_snip_migrated_v1')||'{}')||{}; }catch(e){ return {}; } })();
+function snipMarkMigrated(projId){
+  _snipMigrated[projId]=1;
+  try{ localStorage.setItem('tm_snip_migrated_v1', JSON.stringify(_snipMigrated)); }catch(e){}
+}
+function snippetDraftOpen(){
+  if(document.querySelector('[id^="snip-edit-title-"]')) return true;
+  var els=document.querySelectorAll('[id^="psnip-title-"],[id^="psnip-body-"]');
+  for(var i=0;i<els.length;i++){ if(els[i].value) return true; }
+  return false;
+}
+function snipTouched(projId){ _snipEditAt[projId]=Date.now(); }
+function snipPush(projId){ snipTouched(projId); pushProjectToGas(projId, null, {snippets:true}); }
 
 // プロジェクトの議論メモ／作業履歴を「変えた1件だけ」送る（2026-08-21）
 // field は 'memos' か 'logs'。課題のコメント(pushIssueCommentOps)と同じ型。
@@ -8290,11 +8349,11 @@ function renderProjectDetail(id){
         // 定型文タブ
         +'<div class="project-pane-body" id="pbody-snip-'+id+'">' 
           +'<div class="snippet-add-area">'
-            +'<input class="snippet-add-title" id="psnip-title-'+id+'" placeholder="タイトル（例：GPT指示文）">'
-            +'<textarea class="snippet-add-body" id="psnip-body-'+id+'" placeholder="コピーしたい文章を入力..." oninput="snippetBodyResize(this)"></textarea>'
-            +'<div style="display:flex;justify-content:flex-end;">'
-              +'<button class="btn-primary" style="font-size:11px;" onclick="addSnippet(\''+id+'\')" >追加</button>'
+            +'<div class="snippet-add-head">'
+              +'<input class="snippet-add-title" id="psnip-title-'+id+'" placeholder="タイトル（例：GPT指示文）">'
+              +'<button class="btn-primary" style="font-size:11px;flex-shrink:0;" onclick="addSnippet(\''+id+'\')" >追加</button>'
             +'</div>'
+            +'<textarea class="snippet-add-body" id="psnip-body-'+id+'" placeholder="コピーしたい文章を入力..." oninput="snippetBodyResize(this)"></textarea>'
           +'</div>'
           +'<div class="snippet-list" id="psnip-list-'+id+'">'+renderSnippetList(id)+'</div>'
         +'</div>'
@@ -8738,7 +8797,7 @@ function snippetDrop(e, projId, toIdx){
   newIdx=Math.max(0,Math.min(arr.length,newIdx));
   arr.splice(newIdx,0,item);
   _snipDragIdx=null; _snipDragProjId=null;
-  saveLocal(); pushProjectToGas(projId);
+  saveLocal(); snipPush(projId);
   var list=document.getElementById('psnip-list-'+projId);
   if(list) list.innerHTML=renderSnippetList(projId);
   bindSnippetDnd(projId);
@@ -8764,8 +8823,8 @@ function addSnippet(projId){
   p.snippets=p.snippets||[];
   p.snippets.push({title:title||'（無題）',body:body});
   p.updatedAt=new Date().toISOString();
-  titleEl.value=''; bodyEl.value='';
-  saveLocal(); pushProjectToGas(projId);
+  titleEl.value=''; bodyEl.value=''; bodyEl.style.height='';
+  saveLocal(); snipPush(projId);
   var list=document.getElementById('psnip-list-'+projId);
   if(list) list.innerHTML=renderSnippetList(projId);
   miniToast('定型文を追加しました');
@@ -8775,7 +8834,7 @@ function deleteSnippet(projId,idx){
   if(!confirm('「'+esc(p.snippets[idx].title||'このスニペット')+'」を削除しますか？')) return;
   p.snippets.splice(idx,1);
   p.updatedAt=new Date().toISOString();
-  saveLocal(); pushProjectToGas(projId);
+  saveLocal(); snipPush(projId);
   var list=document.getElementById('psnip-list-'+projId);
   if(list) list.innerHTML=renderSnippetList(projId);
   miniToast('削除しました');
@@ -8808,7 +8867,7 @@ function saveEditSnippet(projId,idx){
   var p=_projects.find(function(x){return x.id===projId;}); if(!p||!p.snippets) return;
   p.snippets[idx]={title:titleEl.value.trim()||'（無題）',body:bodyEl.value.trim()};
   p.updatedAt=new Date().toISOString();
-  saveLocal(); pushProjectToGas(projId);
+  saveLocal(); snipPush(projId);
   var list=document.getElementById('psnip-list-'+projId);
   if(list) list.innerHTML=renderSnippetList(projId);
   miniToast('保存しました');
